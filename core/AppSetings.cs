@@ -7,6 +7,10 @@ public static class AppSettings
 {
     public static int MaxUndoSteps { get; set; } = 50;
     public static bool IsLightTheme { get; set; } = false;
+    
+    // YENİ AYARLAR
+    public static bool EyedropperAutoSwitchPen { get; set; } = true;
+    public static bool ShowPanelBackdrops { get; set; } = true;
 
     public static KeyboardKey KeyPen { get; set; } = KeyboardKey.One;
     public static KeyboardKey KeyEraser { get; set; } = KeyboardKey.Two;
@@ -24,6 +28,9 @@ public static class AppSettings
     {
         MaxUndoSteps = 50;
         IsLightTheme = false;
+        EyedropperAutoSwitchPen = true;
+        ShowPanelBackdrops = true;
+
         KeyPen = KeyboardKey.One;
         KeyEraser = KeyboardKey.Two;
         KeyBucket = KeyboardKey.Three;

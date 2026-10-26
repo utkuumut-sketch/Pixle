@@ -97,6 +97,7 @@ public class LayerPanel
                 canvas.Layers.RemoveAt(draggingLayerIndex);
                 canvas.Layers.Insert(dropIndex, layer);
                 canvas.ActiveLayerIndex = dropIndex;
+                canvas.Frames[canvas.ActiveFrameIndex].IsThumbnailDirty = true;
                 onLayerChanged();
             }
             draggingLayerIndex = -1;
@@ -125,13 +126,16 @@ public class LayerPanel
 
                         if (Raylib.CheckCollisionPointRec(mousePos, eyeRect))
                         {
-                            canvas.Layers[i].IsVisible = !canvas.Layers[i].IsVisible; 
+                            canvas.Layers[i].IsVisible = !canvas.Layers[i].IsVisible;
+                            canvas.Frames[canvas.ActiveFrameIndex].IsThumbnailDirty = true;
                         }
                         else if (Raylib.CheckCollisionPointRec(mousePos, delBtn) && canvas.Layers.Count > 1)
                         {
                             history.SaveState(canvas);
+                            canvas.Layers[i].Dispose();
                             canvas.Layers.RemoveAt(i);
                             if (canvas.ActiveLayerIndex >= canvas.Layers.Count) canvas.ActiveLayerIndex = canvas.Layers.Count - 1;
+                            canvas.Frames[canvas.ActiveFrameIndex].IsThumbnailDirty = true;
                             onLayerChanged();
                             return true;
                         }
@@ -172,9 +176,13 @@ public class LayerPanel
             for (int j = 0; j < 2; j++) { Raylib.DrawLine(cx - 4, cy - 2 + j, cx, cy + 2 + j, Color.LightGray); Raylib.DrawLine(cx, cy + 2 + j, cx + 4, cy - 2 + j, Color.LightGray); }
         }
 
-        // Görsel İyileştirme: Alt katman paneli arka planı ve üst sınır çizgisi
-        Raylib.DrawRectangleRec(panelRect, new Color(24, 24, 28, 230));
-        Raylib.DrawLine((int)panelRect.X, (int)panelRect.Y, (int)(panelRect.X + panelRect.Width), (int)panelRect.Y, new Color(55, 55, 65, 255));
+        // YENİ: Ayarlar'dan kontrol edilebilen yarı şeffaf gölge arka planı
+        if (AppSettings.ShowPanelBackdrops)
+        {
+            Raylib.DrawRectangle((int)panelRect.X, (int)panelRect.Y - 4, (int)panelRect.Width, 4, new Color(0, 0, 0, 75));
+            Raylib.DrawRectangleRec(panelRect, new Color(24, 24, 28, 225));
+            Raylib.DrawLine((int)panelRect.X, (int)panelRect.Y, (int)(panelRect.X + panelRect.Width), (int)panelRect.Y, new Color(55, 55, 65, 255));
+        }
 
         int boxSize = 58;
         int spacing = 10;
@@ -217,7 +225,6 @@ public class LayerPanel
             float trackX = panelRect.X + 12;
             float trackY = panelRect.Y + Height - 12;
             float trackWidth = panelRect.Width - 24;
-            // Kritik Hata Düzeltmesi: totalWidth üzerinden oranlama yapıldı
             float thumbWidth = Math.Max(40f, (panelRect.Width / totalWidth) * trackWidth);
             Raylib.DrawRectangle((int)trackX, (int)trackY, (int)trackWidth, 5, new Color(15, 15, 15, 180));
             Raylib.DrawRectangle((int)(trackX + (scrollX / maxScroll) * (trackWidth - thumbWidth)), (int)trackY, (int)thumbWidth, 5, isDraggingScrollbar ? Color.SkyBlue : Color.Gray);
@@ -230,20 +237,25 @@ public class LayerPanel
         bool isActive = (index == canvas.ActiveLayerIndex);
         bool vis = canvas.Layers[index].IsVisible;
 
-        for (int cX = 0; cX < boxSize; cX += 4)
-            for (int cY = 0; cY < boxSize; cY += 4)
-                Raylib.DrawRectangle((int)boxRect.X + cX, (int)boxRect.Y + cY, Math.Min(4, boxSize - cX), Math.Min(4, boxSize - cY), 
-                    ((cX / 4 + cY / 4) % 2 == 0) ? new Color(170, 170, 170, 255) : new Color(130, 130, 130, 255));
+        for (int cX = 0; cX < boxSize; cX += 8)
+            for (int cY = 0; cY < boxSize; cY += 8)
+                Raylib.DrawRectangle((int)boxRect.X + cX, (int)boxRect.Y + cY, Math.Min(8, boxSize - cX), Math.Min(8, boxSize - cY), 
+                    ((cX / 8 + cY / 8) % 2 == 0) ? new Color(170, 170, 170, 255) : new Color(130, 130, 130, 255));
 
         float scale = (float)boxSize / Math.Max(canvas.Width, canvas.Height);
-        int thumbX = (int)boxRect.X + (boxSize - (int)(canvas.Width * scale)) / 2;
-        int thumbY = (int)boxRect.Y + (boxSize - (int)(canvas.Height * scale)) / 2;
+        float drawW = canvas.Width * scale;
+        float drawH = canvas.Height * scale;
+        float thumbX = boxRect.X + (boxSize - drawW) / 2f;
+        float thumbY = boxRect.Y + (boxSize - drawH) / 2f;
 
-        var pixels = canvas.Layers[index].Pixels;
-        for (int x = 0; x < canvas.Width; x++)
-            for (int y = 0; y < canvas.Height; y++)
-                if (pixels[x, y].A > 0)
-                    Raylib.DrawRectangle((int)(thumbX + x * scale), (int)(thumbY + y * scale), Math.Max(1, (int)Math.Ceiling(scale)), Math.Max(1, (int)Math.Ceiling(scale)), pixels[x, y]);
+        // PERFORMANS: İç içe for döngüsü yerine katmanın kendi GPU dokusunu tek seferde çiz!
+        Texture2D layerTex = canvas.Layers[index].GetOrUpdateTexture();
+        Raylib.DrawTexturePro(
+            layerTex,
+            new Rectangle(0, 0, canvas.Width, canvas.Height),
+            new Rectangle(thumbX, thumbY, drawW, drawH),
+            Vector2.Zero, 0f, Color.White
+        );
 
         if (!vis) Raylib.DrawRectangleRec(boxRect, new Color(0, 0, 0, 150));
 

@@ -167,6 +167,7 @@ public class AnimationPanel
                         else if (Raylib.CheckCollisionPointRec(mousePos, delBtn) && canvas.Frames.Count > 1)
                         {
                             history.SaveState(canvas);
+                            canvas.Frames[i].Dispose();
                             canvas.Frames.RemoveAt(i);
                             if (canvas.ActiveFrameIndex >= canvas.Frames.Count) canvas.ActiveFrameIndex = canvas.Frames.Count - 1;
                             onFrameChanged();
@@ -191,9 +192,13 @@ public class AnimationPanel
     {
         Rectangle panelRect = GetPanelBounds(screenWidth, screenHeight);
         
-        // Görsel İyileştirme: Yarı şeffaf üst panel arka planı ve alt sınır çizgisi
-        Raylib.DrawRectangleRec(panelRect, new Color(24, 24, 28, 230));
-        Raylib.DrawLine((int)panelRect.X, (int)(panelRect.Y + Height), (int)(panelRect.X + panelRect.Width), (int)(panelRect.Y + Height), new Color(55, 55, 65, 255));
+        // YENİ: Ayarlar'dan kontrol edilebilen yarı şeffaf gölge arka planı
+        if (AppSettings.ShowPanelBackdrops)
+        {
+            Raylib.DrawRectangle((int)panelRect.X, (int)(panelRect.Y + Height), (int)panelRect.Width, 4, new Color(0, 0, 0, 75));
+            Raylib.DrawRectangleRec(panelRect, new Color(24, 24, 28, 225));
+            Raylib.DrawLine((int)panelRect.X, (int)(panelRect.Y + Height), (int)(panelRect.X + panelRect.Width), (int)(panelRect.Y + Height), new Color(55, 55, 65, 255));
+        }
 
         int boxSize = ThumbnailSize;
         int spacing = 10;
@@ -288,25 +293,26 @@ public class AnimationPanel
         bool isActive = (index == canvas.ActiveFrameIndex);
         bool vis = canvas.Frames[index].IsVisible;
 
-        for (int cX = 0; cX < boxSize; cX += 4)
-            for (int cY = 0; cY < boxSize; cY += 4)
-                Raylib.DrawRectangle((int)boxRect.X + cX, (int)boxRect.Y + cY, Math.Min(4, boxSize - cX), Math.Min(4, boxSize - cY), 
-                    ((cX / 4 + cY / 4) % 2 == 0) ? new Color(170, 170, 170, 255) : new Color(130, 130, 130, 255));
+        // Küçük kutu arka planı (8x8 bloklarla hızlı çizim)
+        for (int cX = 0; cX < boxSize; cX += 8)
+            for (int cY = 0; cY < boxSize; cY += 8)
+                Raylib.DrawRectangle((int)boxRect.X + cX, (int)boxRect.Y + cY, Math.Min(8, boxSize - cX), Math.Min(8, boxSize - cY), 
+                    ((cX / 8 + cY / 8) % 2 == 0) ? new Color(170, 170, 170, 255) : new Color(130, 130, 130, 255));
 
         float scale = (float)boxSize / Math.Max(canvas.Width, canvas.Height);
-        int thumbX = (int)boxRect.X + (boxSize - (int)(canvas.Width * scale)) / 2;
-        int thumbY = (int)boxRect.Y + (boxSize - (int)(canvas.Height * scale)) / 2;
+        float drawW = canvas.Width * scale;
+        float drawH = canvas.Height * scale;
+        float thumbX = boxRect.X + (boxSize - drawW) / 2f;
+        float thumbY = boxRect.Y + (boxSize - drawH) / 2f;
 
-        var frame = canvas.Frames[index];
-        for (int l = 0; l < frame.Layers.Count; l++)
-        {
-            if (!frame.Layers[l].IsVisible) continue;
-            var pixels = frame.Layers[l].Pixels;
-            for (int x = 0; x < canvas.Width; x++)
-                for (int y = 0; y < canvas.Height; y++)
-                    if (pixels[x, y].A > 0)
-                        Raylib.DrawRectangle((int)(thumbX + x * scale), (int)(thumbY + y * scale), Math.Max(1, (int)Math.Ceiling(scale)), Math.Max(1, (int)Math.Ceiling(scale)), pixels[x, y]);
-        }
+        // PERFORMANS: Tüm katmanları ve pikselleri taramak yerine önbellekteki tek dokuyu çiz!
+        Texture2D thumbTex = canvas.Frames[index].GetOrUpdateThumbnail(canvas.Width, canvas.Height);
+        Raylib.DrawTexturePro(
+            thumbTex,
+            new Rectangle(0, 0, canvas.Width, canvas.Height),
+            new Rectangle(thumbX, thumbY, drawW, drawH),
+            Vector2.Zero, 0f, Color.White
+        );
 
         if (!vis) Raylib.DrawRectangleRec(boxRect, new Color(0, 0, 0, 160));
 

@@ -9,7 +9,7 @@ namespace PixelArtApp.UI;
 public class SettingsDialog
 {
     public bool IsOpen { get; private set; } = false;
-    private Rectangle windowRect = new Rectangle(0, 0, 700, 520); // Büyütülmüş panel
+    private Rectangle windowRect = new Rectangle(0, 0, 700, 520);
     private int activeCategory = 0;
     private bool justOpened = false;
 
@@ -119,13 +119,21 @@ public class SettingsDialog
 
             if (activeCategory == 0)
             {
-                if (Raylib.CheckCollisionPointRec(mousePos, new Rectangle(contentX + 180, contentY + 35, 28, 26))) AppSettings.MaxUndoSteps = Math.Max(5, AppSettings.MaxUndoSteps - 5);
-                if (Raylib.CheckCollisionPointRec(mousePos, new Rectangle(contentX + 255, contentY + 35, 28, 26))) AppSettings.MaxUndoSteps = Math.Min(200, AppSettings.MaxUndoSteps + 5);
+                if (Raylib.CheckCollisionPointRec(mousePos, new Rectangle(contentX + 210, contentY + 35, 28, 26))) AppSettings.MaxUndoSteps = Math.Max(5, AppSettings.MaxUndoSteps - 5);
+                if (Raylib.CheckCollisionPointRec(mousePos, new Rectangle(contentX + 285, contentY + 35, 28, 26))) AppSettings.MaxUndoSteps = Math.Min(200, AppSettings.MaxUndoSteps + 5);
+                
+                // YENİ: Damlalık Otomatik Kaleme Geçiş Butonu
+                if (Raylib.CheckCollisionPointRec(mousePos, new Rectangle(contentX + 210, contentY + 75, 130, 28)))
+                    AppSettings.EyedropperAutoSwitchPen = !AppSettings.EyedropperAutoSwitchPen;
             }
             else if (activeCategory == 1)
             {
-                if (Raylib.CheckCollisionPointRec(mousePos, new Rectangle(contentX + 160, contentY + 35, 130, 28))) AppSettings.IsLightTheme = !AppSettings.IsLightTheme;
-                if (Raylib.CheckCollisionPointRec(mousePos, new Rectangle(contentX + 160, contentY + 75, 130, 28))) onToggleGrid();
+                if (Raylib.CheckCollisionPointRec(mousePos, new Rectangle(contentX + 210, contentY + 35, 130, 28))) AppSettings.IsLightTheme = !AppSettings.IsLightTheme;
+                if (Raylib.CheckCollisionPointRec(mousePos, new Rectangle(contentX + 210, contentY + 75, 130, 28))) onToggleGrid();
+                
+                // YENİ: Panel Gölge / Şeffaf Arka Plan Butonu
+                if (Raylib.CheckCollisionPointRec(mousePos, new Rectangle(contentX + 210, contentY + 115, 130, 28)))
+                    AppSettings.ShowPanelBackdrops = !AppSettings.ShowPanelBackdrops;
             }
             else if (activeCategory == 2)
             {
@@ -203,25 +211,44 @@ public class SettingsDialog
         {
             Raylib.DrawText("Genel Ayarlar", (int)contentX, (int)contentY, 16, Color.SkyBlue);
             Raylib.DrawLine((int)contentX, (int)contentY + 22, (int)(windowRect.X + windowRect.Width - 20), (int)contentY + 22, Color.DarkGray);
+            
             Raylib.DrawText("Geri Alma (Undo) Limiti:", (int)contentX, (int)contentY + 42, 13, Color.LightGray);
-            Raylib.DrawRectangleLines((int)contentX + 180, (int)contentY + 35, 28, 26, Color.Gray);
-            Raylib.DrawText("-", (int)contentX + 190, (int)contentY + 41, 15, Color.White);
-            Raylib.DrawText(AppSettings.MaxUndoSteps.ToString(), (int)contentX + 222, (int)contentY + 41, 14, Color.Yellow);
-            Raylib.DrawRectangleLines((int)contentX + 255, (int)contentY + 35, 28, 26, Color.Gray);
-            Raylib.DrawText("+", (int)contentX + 264, (int)contentY + 41, 15, Color.White);
+            Raylib.DrawRectangleLines((int)contentX + 210, (int)contentY + 35, 28, 26, Color.Gray);
+            Raylib.DrawText("-", (int)contentX + 220, (int)contentY + 41, 15, Color.White);
+            Raylib.DrawText(AppSettings.MaxUndoSteps.ToString(), (int)contentX + 250, (int)contentY + 41, 14, Color.Yellow);
+            Raylib.DrawRectangleLines((int)contentX + 285, (int)contentY + 35, 28, 26, Color.Gray);
+            Raylib.DrawText("+", (int)contentX + 294, (int)contentY + 41, 15, Color.White);
+
+            // YENİ: Damlalık Otomatik Kaleme Geçiş Seçeneği
+            Raylib.DrawText("Damlalik Sonrasi Kaleme Gec:", (int)contentX, (int)contentY + 82, 13, Color.LightGray);
+            Rectangle eyeBtn = new Rectangle(contentX + 210, contentY + 75, 130, 28);
+            Raylib.DrawRectangleRec(eyeBtn, AppSettings.EyedropperAutoSwitchPen ? new Color(45, 100, 65, 255) : new Color(95, 45, 45, 255));
+            Raylib.DrawRectangleLinesEx(eyeBtn, 1, Color.Gray);
+            string eyeTxt = AppSettings.EyedropperAutoSwitchPen ? "Acik (Otomatik)" : "Kapali (Kalir)";
+            int etw = Raylib.MeasureText(eyeTxt, 12);
+            Raylib.DrawText(eyeTxt, (int)(eyeBtn.X + (eyeBtn.Width - etw) / 2), (int)eyeBtn.Y + 8, 12, Color.White);
         }
         else if (activeCategory == 1)
         {
             Raylib.DrawText("Gorunum ve Tema", (int)contentX, (int)contentY, 16, Color.SkyBlue);
             Raylib.DrawLine((int)contentX, (int)contentY + 22, (int)(windowRect.X + windowRect.Width - 20), (int)contentY + 22, Color.DarkGray);
+            
             Raylib.DrawText("Arayuz Temasi:", (int)contentX, (int)contentY + 42, 13, Color.LightGray);
-            Raylib.DrawRectangleRec(new Rectangle(contentX + 160, contentY + 35, 130, 28), new Color(45, 65, 95, 255));
-            Raylib.DrawRectangleLines((int)contentX + 160, (int)contentY + 35, 130, 28, Color.SkyBlue);
-            Raylib.DrawText(AppSettings.IsLightTheme ? "Acik (Light)" : "Koyu (Dark)", (int)contentX + 174, (int)contentY + 42, 13, Color.White);
+            Raylib.DrawRectangleRec(new Rectangle(contentX + 210, contentY + 35, 130, 28), new Color(45, 65, 95, 255));
+            Raylib.DrawRectangleLines((int)contentX + 210, (int)contentY + 35, 130, 28, Color.SkyBlue);
+            Raylib.DrawText(AppSettings.IsLightTheme ? "Acik (Light)" : "Koyu (Dark)", (int)contentX + 224, (int)contentY + 42, 13, Color.White);
+            
             Raylib.DrawText("Piksel Izgarasi:", (int)contentX, (int)contentY + 82, 13, Color.LightGray);
-            Raylib.DrawRectangleRec(new Rectangle(contentX + 160, contentY + 75, 130, 28), isGridVisible ? new Color(45, 100, 65, 255) : new Color(95, 45, 45, 255));
-            Raylib.DrawRectangleLines((int)contentX + 160, (int)contentY + 75, 130, 28, Color.Gray);
-            Raylib.DrawText(isGridVisible ? "Acik" : "Kapali", (int)contentX + 202, (int)contentY + 82, 13, Color.White);
+            Raylib.DrawRectangleRec(new Rectangle(contentX + 210, contentY + 75, 130, 28), isGridVisible ? new Color(45, 100, 65, 255) : new Color(95, 45, 45, 255));
+            Raylib.DrawRectangleLines((int)contentX + 210, (int)contentY + 75, 130, 28, Color.Gray);
+            Raylib.DrawText(isGridVisible ? "Acik" : "Kapali", (int)contentX + 252, (int)contentY + 82, 13, Color.White);
+
+            // YENİ: Katman ve Animasyon Paneli Gölge / Şeffaflık Efekti Seçeneği
+            Raylib.DrawText("Panel Seffaf Arka Plan / Golge:", (int)contentX, (int)contentY + 122, 13, Color.LightGray);
+            Rectangle bdBtn = new Rectangle(contentX + 210, contentY + 115, 130, 28);
+            Raylib.DrawRectangleRec(bdBtn, AppSettings.ShowPanelBackdrops ? new Color(45, 100, 65, 255) : new Color(95, 45, 45, 255));
+            Raylib.DrawRectangleLinesEx(bdBtn, 1, Color.Gray);
+            Raylib.DrawText(AppSettings.ShowPanelBackdrops ? "Acik" : "Kapali", (int)bdBtn.X + 42, (int)bdBtn.Y + 8, 13, Color.White);
         }
         else if (activeCategory == 2)
         {

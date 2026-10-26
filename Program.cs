@@ -108,6 +108,11 @@ class Program
             Draw();
         }
 
+        foreach (var t in tabs)
+        {
+            t.History.ClearAll();
+            t.Canvas.Dispose();
+        }
         colorPicker.Unload();
         PixelSkin.UnloadSkin();
         Raylib.CloseWindow();
@@ -127,6 +132,8 @@ class Program
     {
         if (index < 0 || index >= tabs.Count) return;
         tabs[index].Selection.CancelOrCommit(tabs[index].Canvas);
+        tabs[index].History.ClearAll();
+        tabs[index].Canvas.Dispose();
         tabs.RemoveAt(index);
         if (tabs.Count == 0) activeTabIndex = -1;
         else if (activeTabIndex >= tabs.Count) activeTabIndex = tabs.Count - 1;
@@ -515,7 +522,10 @@ class Program
                 {
                     Color pickedColor = canvas.GetMergedPixel(gx, gy);
                     if (pickedColor.A > 0) { palette.SetColor(pickedColor); ShowStatus($"Renk secildi: R:{pickedColor.R}"); }
-                    if (toolManager.ActiveTool == ToolType.Eyedropper) toolManager.ActiveTool = ToolType.Pen;
+                    
+                    // YENİ: Ayarlar'daki tercihe göre otomatik kaleme geç veya damlalıkta kal
+                    if (toolManager.ActiveTool == ToolType.Eyedropper && AppSettings.EyedropperAutoSwitchPen)
+                        toolManager.ActiveTool = ToolType.Pen;
                 }
             }
             else if (toolManager.ActiveTool == ToolType.Bucket || toolManager.ActiveTool == ToolType.SmartBucket)
@@ -546,7 +556,6 @@ class Program
                 }
                 else if (Raylib.IsMouseButtonDown(MouseButton.Right))
                 {
-                    // Hata Düzeltmesi: Sağ tık her zaman silgi boyutunu kullanarak siler
                     if (lastGridPos.HasValue) toolManager.DrawLine(canvas, lastGridPos.Value.x, lastGridPos.Value.y, gx, gy, Canvas.TransparentColor, forceEraser: true);
                     else toolManager.ApplyTool(canvas, gx, gy, Canvas.TransparentColor, forceEraser: true);
                     lastGridPos = (gx, gy);
@@ -632,7 +641,6 @@ class Program
             Raylib.EndMode2D();
             selection.CheckAndDrawFloatingMenu(canvas, camera, mouseScreenPos, history, ShowStatus);
 
-            // Z-Order Düzeltmesi: Katman paneli altta, animasyon paneli (açılır ayarlar menüsüyle birlikte) üstte çizilir
             layerPanel.Draw(canvas, sw, sh);
             animationPanel.Draw(canvas, sw, sh);
             toolPanel.Draw(toolManager.ActiveTool, toolManager.ActiveShape, toolManager.ActiveSelectionMode, sh);
