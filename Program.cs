@@ -24,6 +24,7 @@ class Program
     static NewProjectDialog newProjectDialog = null!;
     static SettingsDialog settingsDialog = null!;
     static ExportDialog exportDialog = null!;
+    static UnsavedChangesDialog unsavedDialog = null!;
     static ToolPanel toolPanel = null!;
     static ColorPickerDialog colorPicker = null!;
     static LayerPanel layerPanel = null!;
@@ -64,6 +65,7 @@ class Program
         newProjectDialog = new NewProjectDialog();
         settingsDialog = new SettingsDialog();
         exportDialog = new ExportDialog();
+        unsavedDialog = new UnsavedChangesDialog();
         toolPanel = new ToolPanel(WorkspaceTopY);
         layerPanel = new LayerPanel();
         animationPanel = new AnimationPanel();
@@ -73,12 +75,14 @@ class Program
         topMenu.AddCategory("Dosya", items =>
         {
             items.Add(new MenuItem("Yeni Proje (Ctrl+N)", () => newProjectDialog.Open()));
-            items.Add(new MenuItem("Ac/Ice Aktar (Ctrl+O)", OpenProjectWithDialog));
-            items.Add(new MenuItem("Disa Aktar (Ctrl+S)", () => { 
+            items.Add(new MenuItem("Ac... (Ctrl+O)", OpenProjectWithDialog));
+            items.Add(new MenuItem("Kaydet (Ctrl+S)", () => { if (ActiveTab != null) SaveTabProject(ActiveTab, saveAs: false); }));
+            items.Add(new MenuItem("Farkli Kaydet... (Ctrl+Shift+S)", () => { if (ActiveTab != null) SaveTabProject(ActiveTab, saveAs: true); }));
+            items.Add(new MenuItem("PNG / Sprite Sheet Disa Aktar (Ctrl+E)", () => { 
                 if (ActiveTab != null) exportDialog.Open(ActiveTab.Title, ActiveTab.Canvas); 
             }));
-            items.Add(new MenuItem("Sekmeyi Kapat (Ctrl+W)", () => { if (activeTabIndex >= 0) CloseTab(activeTabIndex); }));
-            items.Add(new MenuItem("Cikis", () => shouldExit = true));
+            items.Add(new MenuItem("Sekmeyi Kapat (Ctrl+W)", () => { if (activeTabIndex >= 0) RequestCloseTab(activeTabIndex); }));
+            items.Add(new MenuItem("Cikis", RequestExitApp));
         });
 
         topMenu.AddCategory("Duzenle", items =>
@@ -97,13 +101,19 @@ class Program
         {
             items.Add(new MenuItem("Izgara Ac/Kapat", ToggleGrid));
             items.Add(new MenuItem("Kamerayi Sifirla", () => { if (ActiveTab != null) CenterCamera(ActiveTab); }));
-            items.Add(new MenuItem("Ana Ekran (Home)", () => activeTabIndex = -1));
+            items.Add(new MenuItem("Ana Ekran (Home)", () => SwitchToTab(-1)));
         });
 
         topMenu.Layout();
 
-        while (!Raylib.WindowShouldClose() && !shouldExit)
+        while (!shouldExit)
         {
+            // Pencerenin sag ust X tusuna basildiginda kaydedilmemis projeleri kontrol et
+            if (Raylib.WindowShouldClose())
+            {
+                RequestExitApp();
+            }
+
             Update();
             Draw();
         }
@@ -118,38 +128,199 @@ class Program
         Raylib.CloseWindow();
     }
 
+    static void SwitchToTab(int newIndex)
+    {
+        if (ActiveTab != null)
+        {
+            ActiveTab.Selection.CancelOrCommit(ActiveTab.Canvas);
+            ActiveTab.Fps = animationPanel.Fps;
+        }
+
+        activeTabIndex = newIndex;
+
+        if (ActiveTab != null)
+        {
+            targetZoom = ZoomLevels[ActiveTab.ZoomIndex];
+            animationPanel.Fps = ActiveTab.Fps;
+            isGridVisible = ActiveTab.Canvas.ShowGrid;
+        }
+    }
+
     static void CreateNewTab(int width, int height, Color bgColor, string? customTitle = null)
     {
         string title = customTitle ?? $"Sprite-{untitledCounter++}";
         ProjectTab newTab = new ProjectTab(title, width, height, bgColor, isGridVisible);
+        newTab.IsDirty = false; // Yeni olusturulan bos proje temiz baslar
         tabs.Add(newTab);
-        activeTabIndex = tabs.Count - 1;
+        SwitchToTab(tabs.Count - 1);
         CenterCamera(newTab);
         ShowStatus($"Yeni proje olusturuldu: {width}x{height}");
     }
 
-    static void CloseTab(int index)
+    // .LOOM KAYDETME VE FARKLI KAYDETME METODU
+    static bool SaveTabProject(ProjectTab tab, bool saveAs)
+    {
+        tab.Fps = animationPanel.Fps;
+        string? targetPath = tab.FilePath;
+
+        // Eger daha once kaydedilmemisse, Farkli Kaydet secildiyse veya mevcut yol .loom degilse (orn: PNG'den acildiysa) diyalog ac
+        if (saveAs || string.IsNullOrWhiteSpace(targetPath) || !targetPath.EndsWith(".loom", StringComparison.OrdinalIgnoreCase))
+        {
+            targetPath = Exporter.SaveLoomDialog(tab.FilePath, tab.Title);
+            if (string.IsNullOrWhiteSpace(targetPath))
+            {
+                ShowStatus("Kaydetme iptal edildi.");
+                return false;
+            }
+        }
+
+        if (LoomFileManager.SaveProject(tab, palette, targetPath, out string errorMsg))
+        {
+            homeScreen.AddRecentFile(tab.FilePath!);
+            ShowStatus($"Kaydedildi: {Path.GetFileName(tab.FilePath)}");
+            return true;
+        }
+        else
+        {
+            ShowStatus(errorMsg);
+            return false;
+        }
+    }
+
+    // SEKME KAPATMA ISTEGI (Kaydedilmemis degisiklik varsa onay penceresi acar)
+    static void RequestCloseTab(int index)
+    {
+        if (index < 0 || index >= tabs.Count) return;
+        ProjectTab tab = tabs[index];
+
+        if (!tab.IsDirty)
+        {
+            ForceCloseTab(index);
+            return;
+        }
+
+        SwitchToTab(index);
+        unsavedDialog.Open(tab.Title, result =>
+        {
+            if (result == UnsavedDialogResult.Save)
+            {
+                if (SaveTabProject(tab, saveAs: false))
+                {
+                    int currentIdx = tabs.IndexOf(tab);
+                    if (currentIdx >= 0) ForceCloseTab(currentIdx);
+                }
+            }
+            else if (result == UnsavedDialogResult.Discard)
+            {
+                int currentIdx = tabs.IndexOf(tab);
+                if (currentIdx >= 0) ForceCloseTab(currentIdx);
+            }
+        });
+    }
+
+    static void ForceCloseTab(int index)
     {
         if (index < 0 || index >= tabs.Count) return;
         tabs[index].Selection.CancelOrCommit(tabs[index].Canvas);
         tabs[index].History.ClearAll();
         tabs[index].Canvas.Dispose();
         tabs.RemoveAt(index);
+
         if (tabs.Count == 0) activeTabIndex = -1;
-        else if (activeTabIndex >= tabs.Count) activeTabIndex = tabs.Count - 1;
+        else if (activeTabIndex >= tabs.Count) SwitchToTab(tabs.Count - 1);
+        else SwitchToTab(activeTabIndex);
+    }
+
+    // UYGULAMADAN CIKIS ISTEGI (Kaydedilmemis tum sekmeleri sirayla sorar)
+    static void RequestExitApp()
+    {
+        if (unsavedDialog.IsOpen) return;
+
+        int dirtyIndex = tabs.FindIndex(t => t.IsDirty);
+        if (dirtyIndex == -1)
+        {
+            shouldExit = true;
+            return;
+        }
+
+        SwitchToTab(dirtyIndex);
+        ProjectTab dirtyTab = tabs[dirtyIndex];
+
+        unsavedDialog.Open(dirtyTab.Title, result =>
+        {
+            if (result == UnsavedDialogResult.Save)
+            {
+                if (SaveTabProject(dirtyTab, saveAs: false))
+                {
+                    int idx = tabs.IndexOf(dirtyTab);
+                    if (idx >= 0) ForceCloseTab(idx);
+                    RequestExitApp(); // Siradaki kaydedilmemis sekmeyi kontrol et
+                }
+            }
+            else if (result == UnsavedDialogResult.Discard)
+            {
+                int idx = tabs.IndexOf(dirtyTab);
+                if (idx >= 0) ForceCloseTab(idx);
+                RequestExitApp(); // Siradaki kaydedilmemis sekmeyi kontrol et
+            }
+            // Cancel secilirse hicbir sey yapma, uygulamada kal
+        });
     }
 
     static void OpenProjectWithDialog()
     {
-        string? path = Exporter.OpenImageDialog();
+        string? path = Exporter.OpenProjectOrImageDialog();
         if (!string.IsNullOrEmpty(path)) LoadProjectFromFile(path);
     }
 
     static void LoadProjectFromFile(string path)
     {
-        if (!File.Exists(path)) return;
+        if (!File.Exists(path))
+        {
+            ShowStatus("Dosya bulunamadi!");
+            return;
+        }
+
+        // Eger bu dosya zaten acik bir sekmede varsa, yeniden acmak yerine o sekmeye gec
+        int existingIdx = tabs.FindIndex(t => !string.IsNullOrEmpty(t.FilePath) && string.Equals(t.FilePath, path, StringComparison.OrdinalIgnoreCase));
+        if (existingIdx >= 0)
+        {
+            SwitchToTab(existingIdx);
+            ShowStatus($"Zaten acik: {Path.GetFileName(path)}");
+            return;
+        }
+
+        // 1. Eger dosya .loom uzantiliysa LoomFileManager ile yukle
+        if (path.EndsWith(".loom", StringComparison.OrdinalIgnoreCase))
+        {
+            ProjectTab? loadedTab = LoomFileManager.LoadProject(path, out List<Color>? loadedPalette, out string errorMsg);
+            if (loadedTab == null)
+            {
+                // Basarisiz yukleme durumunda mevcut acik sekme ve veriler hic bozulmaz!
+                ShowStatus(errorMsg);
+                return;
+            }
+
+            if (loadedPalette != null && loadedPalette.Count > 0)
+            {
+                palette.SetColors(loadedPalette);
+            }
+
+            tabs.Add(loadedTab);
+            SwitchToTab(tabs.Count - 1);
+            CenterCamera(loadedTab);
+            homeScreen.AddRecentFile(path);
+            ShowStatus($"Proje acildi: {Path.GetFileName(path)}");
+            return;
+        }
+
+        // 2. Eger PNG / JPG / BMP ise mevcut gorsel ice aktarma mantigiyla ac
         Image img = Raylib.LoadImage(path);
-        if (img.Width <= 0 || img.Height <= 0) return;
+        if (img.Width <= 0 || img.Height <= 0)
+        {
+            ShowStatus("Gorsel dosyasi okunamadi veya bozuk!");
+            return;
+        }
 
         int w = Math.Min(img.Width, 256);
         int h = Math.Min(img.Height, 256);
@@ -165,12 +336,13 @@ class Program
             }
         }
         Raylib.UnloadImage(img);
+        newTab.IsDirty = false;
 
         tabs.Add(newTab);
-        activeTabIndex = tabs.Count - 1;
+        SwitchToTab(tabs.Count - 1);
         CenterCamera(newTab);
         homeScreen.AddRecentFile(path);
-        ShowStatus($"Acildi: {Path.GetFileName(path)}");
+        ShowStatus($"Gorsel ice aktarildi: {Path.GetFileName(path)}");
     }
 
     static void SelectTool(ToolType newTool)
@@ -185,6 +357,7 @@ class Program
     {
         isGridVisible = !isGridVisible;
         foreach (var t in tabs) t.Canvas.ShowGrid = isGridVisible;
+        if (ActiveTab != null) ActiveTab.IsDirty = true;
     }
 
     static void ClearCanvas()
@@ -196,7 +369,7 @@ class Program
         ShowStatus("Tuval temizlendi.");
     }
 
-    static void ShowStatus(string msg) { statusMessage = msg; messageTimer = 3.0f; }
+    static void ShowStatus(string msg) { statusMessage = msg; messageTimer = 3.5f; }
 
     static void CenterCamera(ProjectTab tab)
     {
@@ -235,6 +408,13 @@ class Program
 
         palette.Offset = new Vector2(sw - RightPanelWidth + 20, WorkspaceTopY + 35);
 
+        // 1. Onay ve Diyalog Pencereleri (Aciksa diger etkilesimleri bloklar)
+        if (unsavedDialog.IsOpen)
+        {
+            unsavedDialog.Update(mouseScreenPos);
+            return;
+        }
+
         if (newProjectDialog.IsOpen)
         {
             newProjectDialog.Update(mouseScreenPos, (w, h, bg) => CreateNewTab(w, h, bg));
@@ -251,10 +431,8 @@ class Program
                     bool success = Exporter.SaveExport(tab.Canvas, path, scale, allFrames, vertical);
                     if (success)
                     {
-                        tab.FilePath = path;
-                        tab.Title = Path.GetFileNameWithoutExtension(path);
                         homeScreen.AddRecentFile(path);
-                        ShowStatus($"Basariyla aktarildi: {Path.GetFileName(path)}");
+                        ShowStatus($"Disa aktarildi: {Path.GetFileName(path)}");
                     }
                     else ShowStatus("Disa aktarma basarisiz oldu veya iptal edildi.");
                 }
@@ -272,17 +450,38 @@ class Program
         {
             colorPicker.Update(mouseScreenPos, (newColor, addToPalette) =>
             {
-                if (addToPalette) { palette.AddColor(newColor); ShowStatus("Ozel renk palete eklendi!"); }
-                else { palette.SetColor(newColor); ShowStatus("Yeni renk secildi."); }
+                if (addToPalette)
+                {
+                    palette.AddColor(newColor);
+                    if (ActiveTab != null) ActiveTab.IsDirty = true;
+                    ShowStatus("Ozel renk palete eklendi!");
+                }
+                else
+                {
+                    palette.SetColor(newColor);
+                    ShowStatus("Yeni renk secildi.");
+                }
             });
             return;
         }
 
         bool isCtrlDown = Raylib.IsKeyDown(KeyboardKey.LeftControl) || Raylib.IsKeyDown(KeyboardKey.RightControl);
+        bool isShiftDown = Raylib.IsKeyDown(KeyboardKey.LeftShift) || Raylib.IsKeyDown(KeyboardKey.RightShift);
 
+        // Global Dosya Kisayollari
         if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.N)) { newProjectDialog.Open(); return; }
         if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.O)) { OpenProjectWithDialog(); return; }
-        if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.W) && activeTabIndex >= 0) { CloseTab(activeTabIndex); return; }
+        if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.W) && activeTabIndex >= 0) { RequestCloseTab(activeTabIndex); return; }
+        if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.S))
+        {
+            if (ActiveTab != null) SaveTabProject(ActiveTab, saveAs: isShiftDown);
+            return;
+        }
+        if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.E))
+        {
+            if (ActiveTab != null) exportDialog.Open(ActiveTab.Title, ActiveTab.Canvas);
+            return;
+        }
 
         bool topMenuIntercepted = topMenu.Update(mouseScreenPos);
 
@@ -291,8 +490,9 @@ class Program
         {
             tabBarIntercepted = tabBar.Update(
                 mouseScreenPos, tabs, activeTabIndex,
-                newIndex => { ActiveTab?.Selection.CancelOrCommit(ActiveTab.Canvas); activeTabIndex = newIndex; if (ActiveTab != null) targetZoom = ZoomLevels[ActiveTab.ZoomIndex]; },
-                CloseTab, () => newProjectDialog.Open()
+                SwitchToTab,
+                RequestCloseTab,
+                () => newProjectDialog.Open()
             );
         }
 
@@ -398,7 +598,15 @@ class Program
 
         bool animPanelIntercepted = false;
         if (!topMenuIntercepted && !tabBarIntercepted)
-           animPanelIntercepted = animationPanel.Update(canvas, history, mouseScreenPos, sw, sh, () => { selection.CancelOrCommit(canvas); ShowStatus($"Aktif Kare: {canvas.ActiveFrameIndex + 1}"); });
+        {
+            float prevFps = animationPanel.Fps;
+            animPanelIntercepted = animationPanel.Update(canvas, history, mouseScreenPos, sw, sh, () => { selection.CancelOrCommit(canvas); ShowStatus($"Aktif Kare: {canvas.ActiveFrameIndex + 1}"); });
+            if (Math.Abs(animationPanel.Fps - prevFps) > 0.01f)
+            {
+                ActiveTab.Fps = animationPanel.Fps;
+                ActiveTab.IsDirty = true;
+            }
+        }
 
         bool toolPanelIntercepted = toolPanel.Update(
             mouseScreenPos, SelectTool, shape => toolManager.ActiveShape = shape,
@@ -406,7 +614,7 @@ class Program
         );
 
         bool paletteIntercepted = palette.Update(mouseScreenPos, () => colorPicker.Open(palette.CurrentColor));
-        bool layerPanelIntercepted = layerPanel.Update(canvas, history, mouseScreenPos, sw, sh, () => { selection.CancelOrCommit(canvas); ShowStatus($"Aktif Katman: {canvas.Layers[canvas.ActiveLayerIndex].Name}"); });
+        bool layerPanelIntercepted = layerPanel.Update(canvas, history, mouseScreenPos, sw, sh, () => { selection.CancelOrCommit(canvas); ActiveTab.IsDirty = true; ShowStatus($"Aktif Katman: {canvas.Layers[canvas.ActiveLayerIndex].Name}"); });
 
         bool insideDrawingArea = !topMenuIntercepted && !tabBarIntercepted && !animPanelIntercepted &&
                                  !toolPanelIntercepted && !paletteIntercepted && !layerPanelIntercepted &&
@@ -475,7 +683,6 @@ class Program
 
         if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.Z)) { selection.CancelOrCommit(canvas); history.Undo(canvas); }
         else if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.Y)) { selection.CancelOrCommit(canvas); history.Redo(canvas); }
-        else if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.S)) { if (ActiveTab != null) exportDialog.Open(ActiveTab.Title, ActiveTab.Canvas); }
         else if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.C) && selection.HasSelection) { selection.Copy(canvas); ShowStatus("Secim kopyalandi"); }
         else if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.X) && selection.HasSelection) { selection.Cut(canvas, history); ShowStatus("Secim kesildi"); }
         else if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.V)) { SelectTool(ToolType.SelectMove); selection.Paste(canvas, history); ShowStatus("Yapistirildi"); }
@@ -523,7 +730,6 @@ class Program
                     Color pickedColor = canvas.GetMergedPixel(gx, gy);
                     if (pickedColor.A > 0) { palette.SetColor(pickedColor); ShowStatus($"Renk secildi: R:{pickedColor.R}"); }
                     
-                    // YENİ: Ayarlar'daki tercihe göre otomatik kaleme geç veya damlalıkta kal
                     if (toolManager.ActiveTool == ToolType.Eyedropper && AppSettings.EyedropperAutoSwitchPen)
                         toolManager.ActiveTool = ToolType.Pen;
                 }
@@ -699,6 +905,7 @@ class Program
         newProjectDialog.Draw();
         settingsDialog.Draw(isGridVisible);
         exportDialog.Draw();
+        unsavedDialog.Draw();
 
         Raylib.EndDrawing();
     }

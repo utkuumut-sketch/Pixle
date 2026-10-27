@@ -125,10 +125,11 @@ public class LayerPanel
                         Rectangle delBtn = new Rectangle(boxRect.X + boxSize - 18, boxRect.Y + 2, 16, 16);
 
                         if (Raylib.CheckCollisionPointRec(mousePos, eyeRect))
-                        {
-                            canvas.Layers[i].IsVisible = !canvas.Layers[i].IsVisible;
-                            canvas.Frames[canvas.ActiveFrameIndex].IsThumbnailDirty = true;
-                        }
+{
+    canvas.Layers[i].IsVisible = !canvas.Layers[i].IsVisible;
+    canvas.Frames[canvas.ActiveFrameIndex].IsThumbnailDirty = true;
+    onLayerChanged(); // YENI: Katman gorunurlugu degistiginde bildir
+}
                         else if (Raylib.CheckCollisionPointRec(mousePos, delBtn) && canvas.Layers.Count > 1)
                         {
                             history.SaveState(canvas);
@@ -260,7 +261,9 @@ public class LayerPanel
         if (!vis) Raylib.DrawRectangleRec(boxRect, new Color(0, 0, 0, 150));
 
         Raylib.DrawRectangle((int)boxRect.X, (int)boxRect.Y, boxSize, 18, new Color(0, 0, 0, 160));
-        Raylib.DrawText($"Kat {index + 1}", (int)boxRect.X + 5, (int)boxRect.Y + 4, 10, isActive ? Color.Yellow : Color.RayWhite);
+        string lName = canvas.Layers[index].Name;
+if (lName.Length > 7) lName = lName[..7];
+Raylib.DrawText(lName, (int)boxRect.X + 5, (int)boxRect.Y + 4, 10, isActive ? Color.Yellow : Color.RayWhite);
 
         int eyeCx = (int)boxRect.X + boxSize - 12;
         int eyeCy = (int)boxRect.Y + boxSize - 10;

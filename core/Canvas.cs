@@ -78,6 +78,17 @@ public class Canvas : IDisposable
         ActiveFrameIndex = Frames.Count - 1;
     }
 
+    public void ReplaceFrames(List<Frame> newFrames, int activeFrameIndex)
+    {
+        if (newFrames == null || newFrames.Count == 0) return;
+
+        foreach (var f in Frames) f.Dispose();
+        Frames.Clear();
+
+        Frames.AddRange(newFrames);
+        ActiveFrameIndex = Math.Clamp(activeFrameIndex, 0, Frames.Count - 1);
+    }
+    
     public Color GetPixel(int x, int y)
     {
         if (x < 0 || x >= Width || y < 0 || y >= Height) return TransparentColor;

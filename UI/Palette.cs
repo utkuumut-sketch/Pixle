@@ -27,6 +27,8 @@ public class Palette
     public Rectangle ActiveColorBoxBounds => new Rectangle(Offset.X, Offset.Y, 48, 48);
     private Rectangle ViewportBounds => new Rectangle(Offset.X, Offset.Y + 70, viewportWidth, viewportHeight);
 
+    
+
     public Palette(Vector2 offset)
     {
         Offset = offset;
@@ -69,6 +71,17 @@ public class Palette
             return true;
         }
         return false;
+    }
+
+    public IReadOnlyList<Color> GetColors() => colors;
+
+    public void SetColors(IEnumerable<Color> loadedColors)
+    {
+        colors.Clear();
+        colors.AddRange(loadedColors);
+        if (colors.Count > 0)
+            CurrentColor = colors[0];
+        scrollY = 0f;
     }
 
     private float GetTotalContentHeight()

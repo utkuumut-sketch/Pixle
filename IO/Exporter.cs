@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Windows.Forms;
-using System.IO; // Eklendi
+using System.IO;
 using Raylib_cs;
 using PixelArtApp.Core;
 
@@ -10,7 +10,69 @@ namespace PixelArtApp.IO;
 
 public static class Exporter
 {
-    // Aseprite [...] butonuna basıldığında yolu almak için
+    // .LOOM PROJE KAYDETME DIYALOGU (Ctrl+S / Ctrl+Shift+S icin)
+    public static string? SaveLoomDialog(string? currentFullPath, string defaultTitle)
+    {
+        string? selectedPath = null;
+
+        Thread staThread = new Thread(() =>
+        {
+            using SaveFileDialog sfd = new SaveFileDialog();
+            sfd.Title = "Projeyi Kaydet (.loom)";
+            sfd.Filter = "Loom Project (*.loom)|*.loom";
+            sfd.DefaultExt = "loom";
+            sfd.AddExtension = true;
+
+            try
+            {
+                if (!string.IsNullOrEmpty(currentFullPath) && currentFullPath.EndsWith(".loom", StringComparison.OrdinalIgnoreCase))
+                {
+                    sfd.InitialDirectory = Path.GetDirectoryName(currentFullPath);
+                    sfd.FileName = Path.GetFileName(currentFullPath);
+                }
+                else
+                {
+                    sfd.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                    sfd.FileName = defaultTitle.EndsWith(".loom", StringComparison.OrdinalIgnoreCase)
+                        ? defaultTitle
+                        : defaultTitle + ".loom";
+                }
+            }
+            catch { }
+
+            if (sfd.ShowDialog() == DialogResult.OK)
+            {
+                selectedPath = sfd.FileName;
+            }
+        });
+
+        staThread.SetApartmentState(ApartmentState.STA);
+        staThread.Start();
+        staThread.Join();
+
+        return selectedPath;
+    }
+
+    // .LOOM PROJE VEYA GORSEL ACMA DIYALOGU (Ctrl+O icin)
+    public static string? OpenProjectOrImageDialog()
+    {
+        string? selectedPath = null;
+        Thread staThread = new Thread(() =>
+        {
+            using OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Title = "Proje veya Gorsel Ac";
+            ofd.Filter = "Loom Project (*.loom)|*.loom|Image Files (*.png;*.jpg;*.bmp)|*.png;*.jpg;*.bmp|Desteklenen Tum Dosyalar (*.loom;*.png;*.jpg;*.bmp)|*.loom;*.png;*.jpg;*.bmp";
+            ofd.FilterIndex = 1; // Varsayilan olarak Loom Project (*.loom) secili gelir
+            if (ofd.ShowDialog() == DialogResult.OK) selectedPath = ofd.FileName;
+        });
+
+        staThread.SetApartmentState(ApartmentState.STA);
+        staThread.Start();
+        staThread.Join();
+        return selectedPath;
+    }
+
+    // Aseprite [...] butonuna basildiginda PNG/JPG yolu almak icin (Mevcut Export ozelligi korundu)
     public static string? GetSavePathDialog(string currentFullPath)
     {
         string? selectedPath = null;
@@ -18,11 +80,10 @@ public static class Exporter
         Thread staThread = new Thread(() =>
         {
             using SaveFileDialog sfd = new SaveFileDialog();
-            sfd.Title = "Nereye Kaydedilsin? (Aseprite Export)";
+            sfd.Title = "Nereye Kaydedilsin? (PNG / Sprite Sheet Export)";
             sfd.Filter = "PNG Image (*.png)|*.png|JPEG Image (*.jpg)|*.jpg|Tum Dosyalar (*.*)|*.*";
             sfd.DefaultExt = "png";
             
-            // Eğer daha önceden bir yol varsa klasörü o yola odakla
             try 
             {
                 if (!string.IsNullOrEmpty(currentFullPath))
@@ -46,7 +107,7 @@ public static class Exporter
         return selectedPath;
     }
 
-    // Export butonuna basıldığında belirtilen yola kaydetmek için
+    // Export butonuna basildiginda belirtilen yola PNG/JPG kaydetmek icin (Mevcut Export ozelligi korundu)
     public static bool SaveExport(Canvas canvas, string path, int scale, bool exportAllFrames, bool sheetVertical)
     {
         if (string.IsNullOrWhiteSpace(path)) return false;
@@ -113,20 +174,6 @@ public static class Exporter
         }
     }
 
-    public static string? OpenImageDialog()
-    {
-        string? selectedPath = null;
-        Thread staThread = new Thread(() =>
-        {
-            using OpenFileDialog ofd = new OpenFileDialog();
-            ofd.Title = "Proje Ac (Import)";
-            ofd.Filter = "Image Files (*.png;*.jpg;*.bmp)|*.png;*.jpg;*.bmp";
-            if (ofd.ShowDialog() == DialogResult.OK) selectedPath = ofd.FileName;
-        });
-
-        staThread.SetApartmentState(ApartmentState.STA);
-        staThread.Start();
-        staThread.Join();
-        return selectedPath;
-    }
+    // Geriye donuk uyumluluk icin korundu
+    public static string? OpenImageDialog() => OpenProjectOrImageDialog();
 }

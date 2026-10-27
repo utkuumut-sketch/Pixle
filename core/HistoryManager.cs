@@ -8,6 +8,9 @@ public class HistoryManager
     private LinkedList<(List<Frame> frames, int activeFrame)> undoList = new();
     private Stack<(List<Frame> frames, int activeFrame)> redoStack = new();
 
+    // YENI: Projede bir degisiklik yapildiginda (SaveState, Undo, Redo) sekmeyi bilgilendirmek icin
+    public Action? OnStateChanged { get; set; }
+
     private void DisposeFrameList(List<Frame> list)
     {
         foreach (var f in list) f.Dispose();
@@ -31,6 +34,8 @@ public class HistoryManager
             var popped = redoStack.Pop();
             DisposeFrameList(popped.frames);
         }
+
+        OnStateChanged?.Invoke();
     }
 
     public void Undo(Canvas canvas)
@@ -50,6 +55,7 @@ public class HistoryManager
         DisposeFrameList(previous.frames);
 
         canvas.ActiveFrameIndex = Math.Clamp(previous.activeFrame, 0, canvas.Frames.Count - 1);
+        OnStateChanged?.Invoke();
     }
 
     public void Redo(Canvas canvas)
@@ -68,6 +74,7 @@ public class HistoryManager
         DisposeFrameList(next.frames);
 
         canvas.ActiveFrameIndex = Math.Clamp(next.activeFrame, 0, canvas.Frames.Count - 1);
+        OnStateChanged?.Invoke();
     }
 
     public void ClearAll()

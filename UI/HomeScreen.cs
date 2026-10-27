@@ -109,15 +109,17 @@ public class HomeScreen
         DrawHomeButton(openBtn, "   Dosya Ac / Ice Aktar", "PNG gorselini yeni sekmede ac", new Color(50, 50, 60, 255), mousePos);
 
         // Kısayol Bilgi Kutusu
-        Rectangle infoBox = new Rectangle(80, topY + 270, 240, 150);
-        Raylib.DrawRectangleRec(infoBox, new Color(30, 30, 35, 255));
-        Raylib.DrawRectangleLinesEx(infoBox, 1, new Color(55, 55, 65, 255));
-        Raylib.DrawText("Hizli Kisayollar:", (int)infoBox.X + 12, (int)infoBox.Y + 12, 13, Color.Yellow);
-        Raylib.DrawText("Ctrl + N : Yeni Proje", (int)infoBox.X + 12, (int)infoBox.Y + 36, 12, Color.LightGray);
-        Raylib.DrawText("Ctrl + O : Dosya Ac", (int)infoBox.X + 12, (int)infoBox.Y + 56, 12, Color.LightGray);
-        Raylib.DrawText("Ctrl + S : PNG Disa Aktar", (int)infoBox.X + 12, (int)infoBox.Y + 76, 12, Color.LightGray);
-        Raylib.DrawText("Ctrl + W : Sekmeyi Kapat", (int)infoBox.X + 12, (int)infoBox.Y + 96, 12, Color.LightGray);
-        Raylib.DrawText("Yukari Ok : Katmanlari Gizle", (int)infoBox.X + 12, (int)infoBox.Y + 116, 12, Color.LightGray);
+       Rectangle infoBox = new Rectangle(80, topY + 270, 240, 170);
+Raylib.DrawRectangleRec(infoBox, new Color(30, 30, 35, 255));
+Raylib.DrawRectangleLinesEx(infoBox, 1, new Color(55, 55, 65, 255));
+Raylib.DrawText("Hizli Kisayollar:", (int)infoBox.X + 12, (int)infoBox.Y + 12, 13, Color.Yellow);
+Raylib.DrawText("Ctrl + N : Yeni Proje", (int)infoBox.X + 12, (int)infoBox.Y + 36, 12, Color.LightGray);
+Raylib.DrawText("Ctrl + O : Proje / Gorsel Ac", (int)infoBox.X + 12, (int)infoBox.Y + 56, 12, Color.LightGray);
+Raylib.DrawText("Ctrl + S : Projeyi Kaydet (.loom)", (int)infoBox.X + 12, (int)infoBox.Y + 76, 12, Color.LightGray);
+Raylib.DrawText("Ctrl+Shift+S : Farkli Kaydet", (int)infoBox.X + 12, (int)infoBox.Y + 96, 12, Color.LightGray);
+Raylib.DrawText("Ctrl + E : PNG Disa Aktar", (int)infoBox.X + 12, (int)infoBox.Y + 116, 12, Color.LightGray);
+Raylib.DrawText("Ctrl + W : Sekmeyi Kapat", (int)infoBox.X + 12, (int)infoBox.Y + 136, 12, Color.LightGray);
+        
 
         // SAĞ BÖLÜM: Son Açılan Projeler (Recent Projects)
         float recentX = 390;
