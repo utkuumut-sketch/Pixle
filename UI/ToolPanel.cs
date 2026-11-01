@@ -8,7 +8,7 @@ namespace PixelArtApp.UI;
 
 public class ToolPanel
 {
-    public float Width { get; } = 145f;
+    public float Width { get; set; } = 145f;
     public float TopOffset { get; }
 
     private readonly List<(string Label, ToolType Tool)> tools = new()
@@ -18,6 +18,8 @@ public class ToolPanel
         ("Kova (3)", ToolType.Bucket),
         ("Akilli Kova (4)", ToolType.SmartBucket),
         ("Damlalik (5)", ToolType.Eyedropper),
+        ("Bulanik (R)", ToolType.Blur),
+        ("Karistir (J)", ToolType.Jumble),
         ("Cizgi (L)", ToolType.Line),
         ("Sekiller (U)", ToolType.Shape),
         ("Sec / Tasi (M)", ToolType.SelectMove)
@@ -128,7 +130,6 @@ public class ToolPanel
     {
         currentActiveTool = activeTool;
 
-        // Sol Panel Gövdesi
         Rectangle panelRect = new Rectangle(0, TopOffset, Width, screenHeight - TopOffset);
         PixelSkin.DrawPanel(panelRect);
 
@@ -145,11 +146,10 @@ public class ToolPanel
             bool isSelected = tools[i].Tool == activeTool;
             bool isHover = Raylib.CheckCollisionPointRec(mousePos, btnRect);
 
-            // 3D Bevel Buton Çizimi
             PixelSkin.DrawButton(btnRect, isHover, isSelected);
 
             string label = tools[i].Label;
-            int textOffsetY = isSelected ? 9 : 8; // Basıldığında hafif aşağı çökme efekti
+            int textOffsetY = isSelected ? 9 : 8; 
             int textOffsetX = isSelected ? 11 : 10;
 
             if (tools[i].Tool == ToolType.Shape || tools[i].Tool == ToolType.SelectMove)
@@ -160,7 +160,6 @@ public class ToolPanel
             Raylib.DrawText(label, (int)btnRect.X + textOffsetX, (int)btnRect.Y + textOffsetY, 12, isSelected ? Color.Yellow : Color.RayWhite);
         }
 
-        // Açılan Yan Menü (Flyout)
         Rectangle flyout = GetFlyoutBounds();
         if (flyout.Width > 0)
         {

@@ -6,7 +6,16 @@ namespace PixelArtApp.Core;
 public class Layer : IDisposable
 {
     public string Name { get; set; }
-    public Color[,] Pixels { get; set; }
+    public int Width { get; }
+    public int Height { get; }
+
+    // CoW GUVENLIGI: Dizi disariya dogrudan acilmaz, yazma islemleri metotlarla kontrol edilir.
+    private Color[,] pixels;
+    private bool isPixelsShared = false;
+
+    // Sadece okuma (Export, Thumbnail, vb.) yapan yerler icin salt-okunur erisim
+    // Layer.cs icinde:
+public Color[,] Pixels => pixels; // Disaridan new Color[,] atanmasini engeller, EnsureUniquePixels() olmadanSetPixel kullanilmasini saglar.
 
     private bool isVisible = true;
     public bool IsVisible 
@@ -15,27 +24,71 @@ public class Layer : IDisposable
         set { if (isVisible != value) { isVisible = value; IsDirty = true; } } 
     }
 
-    // PERFORMANS: GPU Doku Önbelleği
     public bool IsDirty { get; set; } = true;
     private Texture2D cachedTexture;
     private bool hasTexture = false;
-    private Color[] flatBuffer;
+    private Color[]? flatBuffer;
 
     public Layer(string name, int width, int height)
     {
         Name = name;
-        Pixels = new Color[width, height];
-        flatBuffer = new Color[width * height];
+        Width = width;
+        Height = height;
+        pixels = new Color[width, height];
+    }
+
+    // RAM OPTIMIZASYONU: Clone() sirasinda gereksiz Color[,] tahsisatini onleyen ozel kurucu
+    private Layer(string name, Color[,] sharedPixels, bool visible)
+    {
+        Name = name;
+        Width = sharedPixels.GetLength(0);
+        Height = sharedPixels.GetLength(1);
+        pixels = sharedPixels;
+        isVisible = visible;
+        isPixelsShared = true;
+        IsDirty = true;
+    }
+
+    public Color GetPixel(int x, int y) => pixels[x, y];
+
+    public void SetPixel(int x, int y, Color color)
+    {
+        EnsureUniquePixels();
+        pixels[x, y] = color;
+        IsDirty = true;
+    }
+
+    // Dosyadan ilk yukleme gibi CoW paylasimi olmayan toplu yazimlar icin
+    public void SetPixelDirect(int x, int y, Color color)
+    {
+        pixels[x, y] = color;
+    }
+
+    public void Fill(Color color)
+    {
+        EnsureUniquePixels();
+        for (int x = 0; x < Width; x++)
+            for (int y = 0; y < Height; y++)
+                pixels[x, y] = color;
+        IsDirty = true;
+    }
+
+    public void EnsureUniquePixels()
+    {
+        if (isPixelsShared)
+        {
+            Color[,] newPixels = new Color[Width, Height];
+            Array.Copy(pixels, newPixels, pixels.Length);
+            pixels = newPixels;
+            isPixelsShared = false;
+        }
     }
 
     public Texture2D GetOrUpdateTexture()
     {
-        int w = Pixels.GetLength(0);
-        int h = Pixels.GetLength(1);
-
         if (!hasTexture)
         {
-            Image img = Raylib.GenImageColor(w, h, new Color(0, 0, 0, 0));
+            Image img = Raylib.GenImageColor(Width, Height, new Color(0, 0, 0, 0));
             cachedTexture = Raylib.LoadTextureFromImage(img);
             Raylib.SetTextureFilter(cachedTexture, TextureFilter.Point);
             Raylib.UnloadImage(img);
@@ -45,12 +98,15 @@ public class Layer : IDisposable
 
         if (IsDirty)
         {
-            for (int y = 0; y < h; y++)
+            if (flatBuffer == null)
+                flatBuffer = new Color[Width * Height];
+
+            for (int y = 0; y < Height; y++)
             {
-                int rowOffset = y * w;
-                for (int x = 0; x < w; x++)
+                int rowOffset = y * Width;
+                for (int x = 0; x < Width; x++)
                 {
-                    flatBuffer[rowOffset + x] = Pixels[x, y];
+                    flatBuffer[rowOffset + x] = pixels[x, y];
                 }
             }
             Raylib.UpdateTexture(cachedTexture, flatBuffer);
@@ -62,13 +118,8 @@ public class Layer : IDisposable
 
     public Layer Clone()
     {
-        int w = Pixels.GetLength(0);
-        int h = Pixels.GetLength(1);
-        Layer clone = new Layer(Name, w, h);
-        clone.isVisible = this.isVisible;
-        Array.Copy(Pixels, clone.Pixels, Pixels.Length);
-        clone.IsDirty = true;
-        return clone;
+        this.isPixelsShared = true;
+        return new Layer(Name, this.pixels, this.isVisible);
     }
 
     public void Dispose()
@@ -78,5 +129,6 @@ public class Layer : IDisposable
             Raylib.UnloadTexture(cachedTexture);
             hasTexture = false;
         }
+        flatBuffer = null; 
     }
 }

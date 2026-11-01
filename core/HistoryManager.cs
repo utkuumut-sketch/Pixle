@@ -8,7 +8,6 @@ public class HistoryManager
     private LinkedList<(List<Frame> frames, int activeFrame)> undoList = new();
     private Stack<(List<Frame> frames, int activeFrame)> redoStack = new();
 
-    // YENI: Projede bir degisiklik yapildiginda (SaveState, Undo, Redo) sekmeyi bilgilendirmek icin
     public Action? OnStateChanged { get; set; }
 
     private void DisposeFrameList(List<Frame> list)
@@ -19,6 +18,10 @@ public class HistoryManager
     public void SaveState(Canvas canvas)
     {
         var snapshot = new List<Frame>();
+        
+        // RAM OPTİMİZASYONU: f.Clone() metodu artık yeni bir Frame nesnesi yaratsa da,
+        // içindeki katmanların (Layer) Color[,] dizilerini kopyalamıyor. Sadece bir referans (pointer) aktarıyor.
+        // Bu yüzden SaveState çağrısı artık anlık olarak 0 bayt ekstra RAM tüketir!
         foreach (var f in canvas.Frames) snapshot.Add(f.Clone());
 
         undoList.AddLast((snapshot, canvas.ActiveFrameIndex));

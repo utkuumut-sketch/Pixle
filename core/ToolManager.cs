@@ -11,6 +11,8 @@ public enum ToolType
     Bucket,
     SmartBucket,
     Eyedropper,
+    Blur,
+    Jumble,
     Line,
     Shape,
     SelectMove
@@ -34,6 +36,8 @@ public class ToolManager
     public ToolType ActiveTool { get; set; } = ToolType.Pen;
     public ShapeType ActiveShape { get; set; } = ShapeType.RectangleOutline;
     public SelectToolMode ActiveSelectionMode { get; set; } = SelectToolMode.Rectangle;
+
+    private readonly Random rng = new();
 
     public void ApplyTool(Canvas canvas, int startX, int startY, Color color, bool forceEraser = false)
     {
@@ -64,6 +68,146 @@ public class ToolManager
             case ToolType.SmartBucket:
                 ReplaceAllColor(canvas, startX, startY, color);
                 break;
+
+            case ToolType.Blur:
+                ApplyBlur(canvas, startX, startY, PenSize);
+                break;
+
+            case ToolType.Jumble:
+                ApplyJumble(canvas, startX, startY, PenSize);
+                break;
+        }
+    }
+
+    // ASEPRITE BLUR TOOL: Komsu piksellerin agirlikli ortalamasini alarak yumusatir
+    public void ApplyBlur(Canvas canvas, int centerX, int centerY, int size)
+    {
+        int offset = size / 2;
+        int minX = Math.Max(0, centerX - offset);
+        int maxX = Math.Min(canvas.Width - 1, centerX - offset + size - 1);
+        int minY = Math.Max(0, centerY - offset);
+        int maxY = Math.Min(canvas.Height - 1, centerY - offset + size - 1);
+
+        int regionW = maxX - minX + 1;
+        int regionH = maxY - minY + 1;
+        if (regionW <= 0 || regionH <= 0) return;
+
+        // Okuma sirasinda piksellerin birbirini ezmemesi icin kopya uzerinden hesapla
+        int sampleMinX = Math.Max(0, minX - 1);
+        int sampleMaxX = Math.Min(canvas.Width - 1, maxX + 1);
+        int sampleMinY = Math.Max(0, minY - 1);
+        int sampleMaxY = Math.Min(canvas.Height - 1, maxY + 1);
+
+        int sampleW = sampleMaxX - sampleMinX + 1;
+        int sampleH = sampleMaxY - sampleMinY + 1;
+        Color[,] snapshot = new Color[sampleW, sampleH];
+
+        for (int x = sampleMinX; x <= sampleMaxX; x++)
+        {
+            for (int y = sampleMinY; y <= sampleMaxY; y++)
+            {
+                snapshot[x - sampleMinX, y - sampleMinY] = canvas.GetPixel(x, y);
+            }
+        }
+
+        int centerWeight = Math.Max(1, 6 - AppSettings.BlurIntensity);
+
+        for (int x = minX; x <= maxX; x++)
+        {
+            for (int y = minY; y <= maxY; y++)
+            {
+                long sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+                long colorWeightSum = 0;
+                int totalKernelWeight = 0;
+
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    for (int dy = -1; dy <= 1; dy++)
+                    {
+                        int nx = x + dx;
+                        int ny = y + dy;
+                        if (nx < sampleMinX || nx > sampleMaxX || ny < sampleMinY || ny > sampleMaxY) continue;
+
+                        int kWeight = (dx == 0 && dy == 0) ? centerWeight : 1;
+                        Color c = snapshot[nx - sampleMinX, ny - sampleMinY];
+
+                        sumA += c.A * kWeight;
+                        totalKernelWeight += kWeight;
+
+                        if (c.A > 0)
+                        {
+                            long cw = c.A * kWeight;
+                            sumR += c.R * cw;
+                            sumG += c.G * cw;
+                            sumB += c.B * cw;
+                            colorWeightSum += cw;
+                        }
+                    }
+                }
+
+                if (totalKernelWeight == 0) continue;
+                byte newA = (byte)Math.Clamp(sumA / totalKernelWeight, 0, 255);
+
+                if (newA == 0 || colorWeightSum == 0)
+                {
+                    canvas.SetPixel(x, y, Canvas.TransparentColor);
+                }
+                else
+                {
+                    byte newR = (byte)Math.Clamp(sumR / colorWeightSum, 0, 255);
+                    byte newG = (byte)Math.Clamp(sumG / colorWeightSum, 0, 255);
+                    byte newB = (byte)Math.Clamp(sumB / colorWeightSum, 0, 255);
+                    canvas.SetPixel(x, y, new Color(newR, newG, newB, newA));
+                }
+            }
+        }
+    }
+
+    // ASEPRITE JUMBLE TOOL: Firca alanindaki pikselleri rastgele komsulariyla karistirir
+    public void ApplyJumble(Canvas canvas, int centerX, int centerY, int size)
+    {
+        int effSize = Math.Max(2, size);
+        int offset = effSize / 2;
+        int minX = Math.Max(0, centerX - offset);
+        int maxX = Math.Min(canvas.Width - 1, centerX - offset + effSize - 1);
+        int minY = Math.Max(0, centerY - offset);
+        int maxY = Math.Min(canvas.Height - 1, centerY - offset + effSize - 1);
+
+        List<(int x, int y)> coords = new();
+        for (int x = minX; x <= maxX; x++)
+        {
+            for (int y = minY; y <= maxY; y++)
+            {
+                coords.Add((x, y));
+            }
+        }
+
+        if (coords.Count <= 1) return;
+
+        // Fisher-Yates karistirma ile rastgele piksel ciftlerini yer degistir
+        for (int i = coords.Count - 1; i > 0; i--)
+        {
+            int j = rng.Next(i + 1);
+            (coords[i], coords[j]) = (coords[j], coords[i]);
+        }
+
+        int swapAttempts = Math.Max(1, (coords.Count * AppSettings.JumbleIntensity) / 200);
+        for (int i = 0; i < swapAttempts; i++)
+        {
+            var (x1, y1) = coords[i % coords.Count];
+            int nx = Math.Clamp(x1 + rng.Next(-1, 2), minX, maxX);
+            int ny = Math.Clamp(y1 + rng.Next(-1, 2), minY, maxY);
+
+            if (nx != x1 || ny != y1)
+            {
+                Color c1 = canvas.GetPixel(x1, y1);
+                Color c2 = canvas.GetPixel(nx, ny);
+                if (!ColorsEqual(c1, c2))
+                {
+                    canvas.SetPixel(x1, y1, c2);
+                    canvas.SetPixel(nx, ny, c1);
+                }
+            }
         }
     }
 
@@ -86,6 +230,15 @@ public class ToolManager
 
     public void DrawLine(Canvas canvas, int x0, int y0, int x1, int y1, Color color, bool forceEraser = false)
     {
+        if (!forceEraser && (ActiveTool == ToolType.Blur || ActiveTool == ToolType.Jumble))
+        {
+            foreach (var (x, y) in GetLinePixels(x0, y0, x1, y1))
+            {
+                ApplyTool(canvas, x, y, color, false);
+            }
+            return;
+        }
+
         bool isErasing = forceEraser || ActiveTool == ToolType.Eraser;
         int size = isErasing ? EraserSize : PenSize;
         int offset = size / 2;

@@ -7,7 +7,18 @@ namespace PixelArtApp.UI;
 
 public class AnimationPanel
 {
-    public float Height { get; } = 96f; 
+    public float Height { get; } = 96f;
+    public bool IsHidden { get; private set; } = false;
+    public float SlideProgress { get; private set; } = 0f; // 0f: Tam Acik, 1f: Tam Gizli (Yukari Kaymis)
+
+    public void ToggleHidden()
+    {
+        IsHidden = !IsHidden;
+        if (IsHidden) IsSettingsOpen = false;
+    }
+
+    public float GetVisibleHeight() => Height * (1f - SlideProgress);
+
     private float scrollX = 0f;
     
     public bool IsPlaying { get; private set; } = false;
@@ -22,15 +33,27 @@ public class AnimationPanel
 
     private Rectangle GetPanelBounds(int screenWidth, int screenHeight)
     {
-        float leftMargin = 145f;  
-        float rightMargin = 180f; 
+        float leftMargin = AppSettings.LeftPanelWidth;
+        float rightMargin = AppSettings.RightPanelWidth;
         float panelWidth = screenWidth - leftMargin - rightMargin;
-        float panelY = 72f; 
+        float panelY = 72f - (Height * SlideProgress);
         return new Rectangle(leftMargin, panelY, panelWidth, Height);
     }
 
     public bool Update(Canvas canvas, HistoryManager history, Vector2 mousePos, int screenWidth, int screenHeight, Action onFrameChanged)
     {
+        // YUKARI / ASAGI KAYMA ANIMASYONU GUNCELLEMESI
+        float targetSlide = IsHidden ? 1f : 0f;
+        if (!AppSettings.EnableUIAnimations)
+        {
+            SlideProgress = targetSlide;
+        }
+        else if (Math.Abs(SlideProgress - targetSlide) > 0.001f)
+        {
+            SlideProgress = Raymath.Lerp(SlideProgress, targetSlide, Math.Min(1f, Raylib.GetFrameTime() * AppSettings.UIAnimationSpeed));
+            if (Math.Abs(SlideProgress - targetSlide) < 0.005f) SlideProgress = targetSlide;
+        }
+
         if (IsPlaying)
         {
             playTimer += Raylib.GetFrameTime();
@@ -64,6 +87,22 @@ public class AnimationPanel
         }
 
         Rectangle panelRect = GetPanelBounds(screenWidth, screenHeight);
+        float bottomEdgeY = Math.Max(72f, panelRect.Y + Height);
+        Rectangle toggleBtn = new Rectangle(panelRect.X + 10, bottomEdgeY, 44, 18);
+
+        if (Raylib.CheckCollisionPointRec(mousePos, toggleBtn) && Raylib.IsMouseButtonPressed(MouseButton.Left))
+        {
+            ToggleHidden();
+            return true;
+        }
+
+        // Panel gizliyse veya kapaniyorsa icerik etkilesimini engelle
+        if (IsHidden || SlideProgress > 0.1f)
+        {
+            draggingFrameIndex = -1;
+            return false;
+        }
+
         Rectangle playBtn = new Rectangle(panelRect.X + panelRect.Width - 120, panelRect.Y + 16, 50, 64);
         Rectangle settingsBtn = new Rectangle(panelRect.X + panelRect.Width - 65, panelRect.Y + 16, 50, 64);
 
@@ -191,90 +230,133 @@ public class AnimationPanel
     public void Draw(Canvas canvas, int screenWidth, int screenHeight)
     {
         Rectangle panelRect = GetPanelBounds(screenWidth, screenHeight);
-        
-        // YENİ: Ayarlar'dan kontrol edilebilen yarı şeffaf gölge arka planı
-        if (AppSettings.ShowPanelBackdrops)
+        float bottomEdgeY = Math.Max(72f, panelRect.Y + Height);
+
+        // Panel tamamen gizli degilse govdeyi ciz (Ust sekme cubugunun ustune tasmamasi icin 72f'den kirp)
+        if (SlideProgress < 0.99f)
         {
-            Raylib.DrawRectangle((int)panelRect.X, (int)(panelRect.Y + Height), (int)panelRect.Width, 4, new Color(0, 0, 0, 75));
-            Raylib.DrawRectangleRec(panelRect, new Color(24, 24, 28, 225));
-            Raylib.DrawLine((int)panelRect.X, (int)(panelRect.Y + Height), (int)(panelRect.X + panelRect.Width), (int)(panelRect.Y + Height), new Color(55, 55, 65, 255));
-        }
+            int clipY = 72;
+            int clipH = Math.Max(0, (int)(panelRect.Y + Height - clipY));
 
-        int boxSize = ThumbnailSize;
-        int spacing = 10;
-        float startX = panelRect.X + 12 - scrollX;
-        float startY = panelRect.Y + (Height - boxSize) / 2;
-        float listAvailableWidth = panelRect.Width - 135;
-
-        Vector2 mousePos = Raylib.GetMousePosition();
-
-        Raylib.BeginScissorMode((int)panelRect.X, (int)panelRect.Y, (int)listAvailableWidth, (int)Height);
-
-        for (int i = 0; i <= canvas.Frames.Count; i++)
-        {
-            if (i == draggingFrameIndex) continue; 
-            Rectangle boxRect = new Rectangle(startX + i * (boxSize + spacing), startY, boxSize, boxSize);
-
-            if (i == canvas.Frames.Count)
+            if (clipH > 0)
             {
-                PixelSkin.DrawButton(boxRect, Raylib.CheckCollisionPointRec(mousePos, boxRect), false);
-                int plusW = Raylib.MeasureText("+", 32);
-                Raylib.DrawText("+", (int)boxRect.X + (boxSize - plusW) / 2, (int)boxRect.Y + (boxSize - 32) / 2, 32, Color.White);
+                Raylib.BeginScissorMode((int)panelRect.X, clipY, (int)panelRect.Width, clipH + 6);
+
+                if (AppSettings.ShowPanelBackdrops)
+                {
+                    Raylib.DrawRectangle((int)panelRect.X, (int)(panelRect.Y + Height), (int)panelRect.Width, 4, new Color(0, 0, 0, 75));
+                    Raylib.DrawRectangleRec(panelRect, new Color(24, 24, 28, 225));
+                    Raylib.DrawLine((int)panelRect.X, (int)(panelRect.Y + Height), (int)(panelRect.X + panelRect.Width), (int)(panelRect.Y + Height), new Color(55, 55, 65, 255));
+                }
+
+                int boxSize = ThumbnailSize;
+                int spacing = 10;
+                float startX = panelRect.X + 12 - scrollX;
+                float startY = panelRect.Y + (Height - boxSize) / 2;
+                float listAvailableWidth = panelRect.Width - 135;
+
+                Vector2 mousePos = Raylib.GetMousePosition();
+
+                Raylib.EndScissorMode();
+                Raylib.BeginScissorMode((int)panelRect.X, clipY, (int)listAvailableWidth, clipH);
+
+                for (int i = 0; i <= canvas.Frames.Count; i++)
+                {
+                    if (i == draggingFrameIndex) continue; 
+                    Rectangle boxRect = new Rectangle(startX + i * (boxSize + spacing), startY, boxSize, boxSize);
+
+                    if (i == canvas.Frames.Count)
+                    {
+                        PixelSkin.DrawButton(boxRect, Raylib.CheckCollisionPointRec(mousePos, boxRect), false);
+                        int plusW = Raylib.MeasureText("+", 32);
+                        Raylib.DrawText("+", (int)boxRect.X + (boxSize - plusW) / 2, (int)boxRect.Y + (boxSize - 32) / 2, 32, Color.White);
+                    }
+                    else DrawFrameBox(canvas, i, boxRect, mousePos);
+                }
+
+                if (draggingFrameIndex != -1 && draggingFrameIndex < canvas.Frames.Count)
+                {
+                    Rectangle dragRect = new Rectangle(mousePos.X - dragOffsetX, startY, boxSize, boxSize);
+                    int dropIndex = Math.Clamp((int)Math.Round((mousePos.X - startX) / (boxSize + spacing)), 0, canvas.Frames.Count - 1);
+                    Raylib.DrawRectangle((int)(startX + dropIndex * (boxSize + spacing) - (spacing / 2f)) - 2, (int)startY, 4, boxSize, Color.Yellow);
+                    DrawFrameBox(canvas, draggingFrameIndex, dragRect, mousePos, isDragging: true);
+                }
+
+                Raylib.EndScissorMode();
+                Raylib.BeginScissorMode((int)panelRect.X, clipY, (int)panelRect.Width, clipH);
+
+                Rectangle playBtn = new Rectangle(panelRect.X + panelRect.Width - 120, panelRect.Y + 16, 50, 64);
+                Rectangle settingsBtn = new Rectangle(panelRect.X + panelRect.Width - 65, panelRect.Y + 16, 50, 64);
+
+                bool hoverPlay = Raylib.CheckCollisionPointRec(mousePos, playBtn);
+                bool hoverSet = Raylib.CheckCollisionPointRec(mousePos, settingsBtn);
+                
+                PixelSkin.DrawButton(playBtn, hoverPlay, IsPlaying);
+                PixelSkin.DrawButton(settingsBtn, hoverSet, IsSettingsOpen);
+
+                int iconOffsetPlay = IsPlaying ? 2 : (hoverPlay ? 1 : 0);
+                int iconOffsetSet = IsSettingsOpen ? 2 : (hoverSet ? 1 : 0);
+
+                if (IsPlaying) 
+                    Raylib.DrawRectangle((int)playBtn.X + 16, (int)playBtn.Y + 23 + iconOffsetPlay, 18, 18, Color.Yellow); 
+                else 
+                    Raylib.DrawTriangle(new Vector2(playBtn.X + 18, playBtn.Y + 19 + iconOffsetPlay), new Vector2(playBtn.X + 18, playBtn.Y + 45 + iconOffsetPlay), new Vector2(playBtn.X + 38, playBtn.Y + 32 + iconOffsetPlay), Color.White);
+
+                Raylib.DrawCircleLines((int)settingsBtn.X + 25, (int)settingsBtn.Y + 32 + iconOffsetSet, 8, Color.LightGray);
+                Raylib.DrawCircleLines((int)settingsBtn.X + 25, (int)settingsBtn.Y + 32 + iconOffsetSet, 4, Color.White);
+
+                Raylib.EndScissorMode();
+
+                if (IsSettingsOpen && SlideProgress < 0.05f)
+                {
+                    Rectangle setRect = new Rectangle(settingsBtn.X - 100, settingsBtn.Y + 70, 150, 140);
+                    PixelSkin.DrawPanel(setRect);
+                    
+                    Raylib.DrawRectangle((int)setRect.X, (int)setRect.Y, (int)setRect.Width, 24, new Color(45, 45, 52, 255));
+                    Raylib.DrawText("Kare Ayarlari", (int)setRect.X + 10, (int)setRect.Y + 6, 12, Color.RayWhite);
+
+                    Raylib.DrawText("Hiz (FPS):", (int)setRect.X + 10, (int)setRect.Y + 35, 12, Color.LightGray);
+                    DrawSmallBtn(new Rectangle(setRect.X + 70, setRect.Y + 30, 24, 24), "-", mousePos);
+                    Raylib.DrawText(Fps.ToString(), (int)setRect.X + 98, (int)setRect.Y + 36, 12, Color.Yellow);
+                    DrawSmallBtn(new Rectangle(setRect.X + 115, setRect.Y + 30, 24, 24), "+", mousePos);
+
+                    Raylib.DrawText("Boyut:", (int)setRect.X + 10, (int)setRect.Y + 70, 12, Color.LightGray);
+                    DrawSmallBtn(new Rectangle(setRect.X + 70, setRect.Y + 65, 24, 24), "-", mousePos);
+                    Raylib.DrawText(ThumbnailSize.ToString(), (int)setRect.X + 96, (int)setRect.Y + 71, 12, Color.Yellow);
+                    DrawSmallBtn(new Rectangle(setRect.X + 115, setRect.Y + 65, 24, 24), "+", mousePos);
+
+                    Rectangle resetBtn = new Rectangle(setRect.X + 10, setRect.Y + 100, 130, 28);
+                    PixelSkin.DrawButton(resetBtn, Raylib.CheckCollisionPointRec(mousePos, resetBtn), false);
+                    Raylib.DrawText("Varsayilana Don", (int)resetBtn.X + 16, (int)resetBtn.Y + 8, 12, Color.White);
+                }
             }
-            else DrawFrameBox(canvas, i, boxRect, mousePos);
         }
 
-        if (draggingFrameIndex != -1 && draggingFrameIndex < canvas.Frames.Count)
+        // GIZLEME / ACMA KULAKCIGI (Toggle Button)
+        Rectangle toggleBtn = new Rectangle(panelRect.X + 10, bottomEdgeY, 44, 18);
+        Raylib.DrawRectangleRec(toggleBtn, new Color(24, 24, 28, 240));
+        Raylib.DrawRectangleLinesEx(toggleBtn, 1, new Color(70, 70, 80, 255));
+
+        int cx = (int)toggleBtn.X + 22;
+        int cy = (int)toggleBtn.Y + 9;
+
+        if (IsHidden)
         {
-            Rectangle dragRect = new Rectangle(mousePos.X - dragOffsetX, startY, boxSize, boxSize);
-            int dropIndex = Math.Clamp((int)Math.Round((mousePos.X - startX) / (boxSize + spacing)), 0, canvas.Frames.Count - 1);
-            Raylib.DrawRectangle((int)(startX + dropIndex * (boxSize + spacing) - (spacing / 2f)) - 2, (int)startY, 4, boxSize, Color.Yellow);
-            DrawFrameBox(canvas, draggingFrameIndex, dragRect, mousePos, isDragging: true);
+            // Panel gizliyken asagi ok goster (Ac)
+            for (int j = 0; j < 2; j++)
+            {
+                Raylib.DrawLine(cx - 4, cy - 2 + j, cx, cy + 2 + j, Color.LightGray);
+                Raylib.DrawLine(cx, cy + 2 + j, cx + 4, cy - 2 + j, Color.LightGray);
+            }
         }
-
-        Raylib.EndScissorMode();
-
-        Rectangle playBtn = new Rectangle(panelRect.X + panelRect.Width - 120, panelRect.Y + 16, 50, 64);
-        Rectangle settingsBtn = new Rectangle(panelRect.X + panelRect.Width - 65, panelRect.Y + 16, 50, 64);
-
-        bool hoverPlay = Raylib.CheckCollisionPointRec(mousePos, playBtn);
-        bool hoverSet = Raylib.CheckCollisionPointRec(mousePos, settingsBtn);
-        
-        PixelSkin.DrawButton(playBtn, hoverPlay, IsPlaying);
-        PixelSkin.DrawButton(settingsBtn, hoverSet, IsSettingsOpen);
-
-        int iconOffsetPlay = IsPlaying ? 2 : (hoverPlay ? 1 : 0);
-        int iconOffsetSet = IsSettingsOpen ? 2 : (hoverSet ? 1 : 0);
-
-        if (IsPlaying) 
-            Raylib.DrawRectangle((int)playBtn.X + 16, (int)playBtn.Y + 23 + iconOffsetPlay, 18, 18, Color.Yellow); 
-        else 
-            Raylib.DrawTriangle(new Vector2(playBtn.X + 18, playBtn.Y + 19 + iconOffsetPlay), new Vector2(playBtn.X + 18, playBtn.Y + 45 + iconOffsetPlay), new Vector2(playBtn.X + 38, playBtn.Y + 32 + iconOffsetPlay), Color.White);
-
-        Raylib.DrawCircleLines((int)settingsBtn.X + 25, (int)settingsBtn.Y + 32 + iconOffsetSet, 8, Color.LightGray);
-        Raylib.DrawCircleLines((int)settingsBtn.X + 25, (int)settingsBtn.Y + 32 + iconOffsetSet, 4, Color.White);
-
-        if (IsSettingsOpen)
+        else
         {
-            Rectangle setRect = new Rectangle(settingsBtn.X - 100, settingsBtn.Y + 70, 150, 140);
-            PixelSkin.DrawPanel(setRect);
-            
-            Raylib.DrawRectangle((int)setRect.X, (int)setRect.Y, (int)setRect.Width, 24, new Color(45, 45, 52, 255));
-            Raylib.DrawText("Kare Ayarlari", (int)setRect.X + 10, (int)setRect.Y + 6, 12, Color.RayWhite);
-
-            Raylib.DrawText("Hiz (FPS):", (int)setRect.X + 10, (int)setRect.Y + 35, 12, Color.LightGray);
-            DrawSmallBtn(new Rectangle(setRect.X + 70, setRect.Y + 30, 24, 24), "-", mousePos);
-            Raylib.DrawText(Fps.ToString(), (int)setRect.X + 98, (int)setRect.Y + 36, 12, Color.Yellow);
-            DrawSmallBtn(new Rectangle(setRect.X + 115, setRect.Y + 30, 24, 24), "+", mousePos);
-
-            Raylib.DrawText("Boyut:", (int)setRect.X + 10, (int)setRect.Y + 70, 12, Color.LightGray);
-            DrawSmallBtn(new Rectangle(setRect.X + 70, setRect.Y + 65, 24, 24), "-", mousePos);
-            Raylib.DrawText(ThumbnailSize.ToString(), (int)setRect.X + 96, (int)setRect.Y + 71, 12, Color.Yellow);
-            DrawSmallBtn(new Rectangle(setRect.X + 115, setRect.Y + 65, 24, 24), "+", mousePos);
-
-            Rectangle resetBtn = new Rectangle(setRect.X + 10, setRect.Y + 100, 130, 28);
-            PixelSkin.DrawButton(resetBtn, Raylib.CheckCollisionPointRec(mousePos, resetBtn), false);
-            Raylib.DrawText("Varsayilana Don", (int)resetBtn.X + 16, (int)resetBtn.Y + 8, 12, Color.White);
+            // Panel acikken yukari ok goster (Gizle)
+            for (int j = 0; j < 2; j++)
+            {
+                Raylib.DrawLine(cx - 4, cy + 1 + j, cx, cy - 3 + j, Color.LightGray);
+                Raylib.DrawLine(cx, cy - 3 + j, cx + 4, cy + 1 + j, Color.LightGray);
+            }
         }
     }
 
@@ -293,7 +375,6 @@ public class AnimationPanel
         bool isActive = (index == canvas.ActiveFrameIndex);
         bool vis = canvas.Frames[index].IsVisible;
 
-        // Küçük kutu arka planı (8x8 bloklarla hızlı çizim)
         for (int cX = 0; cX < boxSize; cX += 8)
             for (int cY = 0; cY < boxSize; cY += 8)
                 Raylib.DrawRectangle((int)boxRect.X + cX, (int)boxRect.Y + cY, Math.Min(8, boxSize - cX), Math.Min(8, boxSize - cY), 
@@ -305,7 +386,6 @@ public class AnimationPanel
         float thumbX = boxRect.X + (boxSize - drawW) / 2f;
         float thumbY = boxRect.Y + (boxSize - drawH) / 2f;
 
-        // PERFORMANS: Tüm katmanları ve pikselleri taramak yerine önbellekteki tek dokuyu çiz!
         Texture2D thumbTex = canvas.Frames[index].GetOrUpdateThumbnail(canvas.Width, canvas.Height);
         Raylib.DrawTexturePro(
             thumbTex,

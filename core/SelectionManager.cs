@@ -25,6 +25,20 @@ public class SelectionManager
     public Rectangle Bounds { get; private set; }
     public Vector2 Offset { get; private set; }
 
+    // --- YÜZEN MENÜ VE CANLI DÖNDÜRME ÇARKI DEĞİŞKENLERİ ---
+    private int floatingMenuState = 0; // 0: Ana Menü, 1: Yansıt, 2: Döndür
+    private string rotateAngleText = "0";
+    public bool isRotateInputActive = false;
+    private float currentRotationAngle = 0f;
+    public bool IsDraggingDial { get; private set; } = false;
+
+    // Canlı döndürme sırasında piksellerin bozulmaması için orijinal kopyayı tutar
+    private bool[,]? rotBackupMask;
+    private Color[,]? rotBackupPixels;
+    private Rectangle rotBackupBounds;
+    private Vector2 rotBackupOffset;
+    // --------------------------------------------------------
+
     private (int x, int y) createStartPos;
     private (int x, int y) createCurrentPos;
     public List<(int x, int y)> LassoPath { get; private set; } = new();
@@ -308,6 +322,13 @@ public class SelectionManager
     {
         if (!HasSelection) return;
 
+        // Eğer döndürme menüsü açıksa ve kullanıcı tuvalden seçimi tutarsa, döndürmeyi onayla ve kapat
+        if (floatingMenuState == 2)
+        {
+            ClearRotationBackup();
+            floatingMenuState = 0;
+        }
+
         if (!IsFloating)
         {
             history.SaveState(canvas);
@@ -393,6 +414,10 @@ public class SelectionManager
         HasSelection = false;
         IsDraggingFloating = false;
         IsCreatingSelection = false;
+        IsDraggingDial = false;
+        floatingMenuState = 0;
+        isRotateInputActive = false;
+        ClearRotationBackup();
         Offset = Vector2.Zero;
         Array.Clear(mask, 0, mask.Length);
     }
@@ -421,6 +446,9 @@ public class SelectionManager
         IsFloating = false;
         HasSelection = false;
         IsDraggingFloating = false;
+        IsDraggingDial = false;
+        floatingMenuState = 0;
+        ClearRotationBackup();
         Offset = Vector2.Zero;
         Array.Clear(mask, 0, mask.Length);
     }
@@ -500,6 +528,194 @@ public class SelectionManager
         if (!HasSelection) return;
         Copy(canvas);
         Paste(canvas, history);
+    }
+
+    // --- DÖNÜŞTÜRME (TRANSFORM), YANSITMA VE CANLI ÇARK SİSTEMİ ---
+
+    public void FlipHorizontal(Canvas canvas, HistoryManager history)
+    {
+        if (!HasSelection) return;
+        if (!IsFloating) { history.SaveState(canvas); LiftSelection(canvas); }
+
+        int w = canvas.Width;
+        int h = canvas.Height;
+        bool[,] newMask = new bool[w, h];
+        Color[,] newFloating = new Color[w, h];
+
+        int bx = (int)Bounds.X;
+        int bw = (int)Bounds.Width;
+
+        for (int x = 0; x < w; x++)
+        {
+            for (int y = 0; y < h; y++)
+            {
+                if (mask[x, y])
+                {
+                    int newX = bx + (bw - 1 - (x - bx));
+                    if (newX >= 0 && newX < w)
+                    {
+                        newMask[newX, y] = true;
+                        newFloating[newX, y] = floatingPixels[x, y];
+                    }
+                }
+            }
+        }
+        mask = newMask;
+        floatingPixels = newFloating;
+    }
+
+    public void FlipVertical(Canvas canvas, HistoryManager history)
+    {
+        if (!HasSelection) return;
+        if (!IsFloating) { history.SaveState(canvas); LiftSelection(canvas); }
+
+        int w = canvas.Width;
+        int h = canvas.Height;
+        bool[,] newMask = new bool[w, h];
+        Color[,] newFloating = new Color[w, h];
+
+        int by = (int)Bounds.Y;
+        int bh = (int)Bounds.Height;
+
+        for (int x = 0; x < w; x++)
+        {
+            for (int y = 0; y < h; y++)
+            {
+                if (mask[x, y])
+                {
+                    int newY = by + (bh - 1 - (y - by));
+                    if (newY >= 0 && newY < h)
+                    {
+                        newMask[x, newY] = true;
+                        newFloating[x, newY] = floatingPixels[x, y];
+                    }
+                }
+            }
+        }
+        mask = newMask;
+        floatingPixels = newFloating;
+    }
+
+    private void BeginRotationSession(Canvas canvas, HistoryManager history)
+    {
+        if (!HasSelection) return;
+        if (!IsFloating)
+        {
+            history.SaveState(canvas);
+            LiftSelection(canvas);
+        }
+
+        int w = mask.GetLength(0);
+        int h = mask.GetLength(1);
+        rotBackupMask = new bool[w, h];
+        rotBackupPixels = new Color[w, h];
+        Array.Copy(mask, rotBackupMask, mask.Length);
+        Array.Copy(floatingPixels, rotBackupPixels, floatingPixels.Length);
+        rotBackupBounds = Bounds;
+        rotBackupOffset = Offset;
+
+        currentRotationAngle = 0f;
+        rotateAngleText = "0";
+    }
+
+    private void RestoreRotationBackup(int w, int h)
+    {
+        if (rotBackupMask == null || rotBackupPixels == null) return;
+        Array.Copy(rotBackupMask, mask, mask.Length);
+        Array.Copy(rotBackupPixels, floatingPixels, floatingPixels.Length);
+        Bounds = rotBackupBounds;
+        Offset = rotBackupOffset;
+        RecalculateBounds(w, h);
+    }
+
+    private void ClearRotationBackup()
+    {
+        rotBackupMask = null;
+        rotBackupPixels = null;
+        IsDraggingDial = false;
+    }
+
+    private void ApplyLiveRotation(Canvas canvas, float angleDegrees)
+    {
+        if (rotBackupMask == null || rotBackupPixels == null) return;
+
+        int w = canvas.Width;
+        int h = canvas.Height;
+
+        if (MathF.Abs(angleDegrees) < 0.1f)
+        {
+            RestoreRotationBackup(w, h);
+            return;
+        }
+
+        float rad = -angleDegrees * (MathF.PI / 180f);
+        float cos = MathF.Cos(rad);
+        float sin = MathF.Sin(rad);
+
+        int bw = (int)rotBackupBounds.Width;
+        int bh = (int)rotBackupBounds.Height;
+        int bx = (int)rotBackupBounds.X;
+        int by = (int)rotBackupBounds.Y;
+
+        float cx = bx + bw / 2f;
+        float cy = by + bh / 2f;
+
+        Vector2[] corners = {
+            new Vector2(bx - cx, by - cy),
+            new Vector2(bx + bw - cx, by - cy),
+            new Vector2(bx + bw - cx, by + bh - cy),
+            new Vector2(bx - cx, by + bh - cy)
+        };
+
+        float minX = float.MaxValue, maxX = float.MinValue;
+        float minY = float.MaxValue, maxY = float.MinValue;
+
+        foreach (var p in corners)
+        {
+            float rx = p.X * cos - p.Y * sin;
+            float ry = p.X * sin + p.Y * cos;
+            if (rx < minX) minX = rx; if (rx > maxX) maxX = rx;
+            if (ry < minY) minY = ry; if (ry > maxY) maxY = ry;
+        }
+
+        int newW = (int)MathF.Ceiling(maxX - minX);
+        int newH = (int)MathF.Ceiling(maxY - minY);
+        if (newW <= 0 || newH <= 0 || newW > 2048 || newH > 2048) return;
+
+        Array.Clear(mask, 0, mask.Length);
+        Array.Clear(floatingPixels, 0, floatingPixels.Length);
+
+        float newCx = newW / 2f;
+        float newCy = newH / 2f;
+
+        int startX = (int)MathF.Round(cx - newCx);
+        int startY = (int)MathF.Round(cy - newCy);
+
+        for (int x = 0; x < newW; x++)
+        {
+            for (int y = 0; y < newH; y++)
+            {
+                float dx = (x + 0.5f) - newCx;
+                float dy = (y + 0.5f) - newCy;
+
+                int sx = (int)MathF.Floor(dx * cos + dy * sin + cx);
+                int sy = (int)MathF.Floor(-dx * sin + dy * cos + cy);
+
+                if (sx >= 0 && sx < w && sy >= 0 && sy < h && rotBackupMask[sx, sy])
+                {
+                    int tx = startX + x;
+                    int ty = startY + y;
+                    if (tx >= 0 && tx < w && ty >= 0 && ty < h)
+                    {
+                        mask[tx, ty] = true;
+                        floatingPixels[tx, ty] = rotBackupPixels[sx, sy];
+                    }
+                }
+            }
+        }
+
+        RecalculateBounds(w, h);
+        Offset = rotBackupOffset;
     }
 
     public void DrawWorldOverlay(Canvas canvas)
@@ -594,87 +810,266 @@ public class SelectionManager
         }
     }
 
-    public bool CheckAndDrawFloatingMenu(Canvas canvas, Camera2D camera, Vector2 mouseScreenPos, HistoryManager history, Action<string> onStatus)
+    public Rectangle GetFloatingMenuBounds(Canvas canvas, Camera2D camera)
     {
-        if (!HasSelection || IsCreatingSelection || IsDraggingFloating) return false;
+        Rectangle anchorBounds = (floatingMenuState == 2 && rotBackupMask != null)
+            ? new Rectangle(rotBackupBounds.X + rotBackupOffset.X, rotBackupBounds.Y + rotBackupOffset.Y, rotBackupBounds.Width, rotBackupBounds.Height)
+            : GetCurrentBounds();
 
-        Rectangle curBounds = GetCurrentBounds();
         Vector2 bottomCenterWorld = new Vector2(
-            canvas.Offset.X + (curBounds.X + curBounds.Width / 2f) * canvas.PixelScale,
-            canvas.Offset.Y + (curBounds.Y + curBounds.Height) * canvas.PixelScale
+            canvas.Offset.X + (anchorBounds.X + anchorBounds.Width / 2f) * canvas.PixelScale,
+            canvas.Offset.Y + (anchorBounds.Y + anchorBounds.Height) * canvas.PixelScale
         );
 
         Vector2 screenAnchor = Raylib.GetWorldToScreen2D(bottomCenterWorld, camera);
 
-        int menuWidth = 285;
-        int menuHeight = 32;
-        float menuX = Math.Clamp(screenAnchor.X - menuWidth / 2f, 150, Raylib.GetScreenWidth() - 190 - menuWidth);
-        float menuY = Math.Clamp(screenAnchor.Y + 12, 45, Raylib.GetScreenHeight() - 45);
+        int menuWidth = floatingMenuState == 0 ? 385 : (floatingMenuState == 1 ? 165 : 375);
+        int menuHeight = floatingMenuState == 2 ? 48 : 32;
 
-        Rectangle menuRect = new Rectangle(menuX, menuY, menuWidth, menuHeight);
+        float menuX = Math.Clamp(screenAnchor.X - menuWidth / 2f, 150, Raylib.GetScreenWidth() - 190 - menuWidth);
+        float menuY = Math.Clamp(screenAnchor.Y + 12, 45, Raylib.GetScreenHeight() - 60);
+
+        return new Rectangle(menuX, menuY, menuWidth, menuHeight);
+    }
+
+    public bool CheckAndDrawFloatingMenu(Canvas canvas, Camera2D camera, Vector2 mouseScreenPos, HistoryManager history, Action<string> onStatus)
+    {
+        if (!HasSelection || IsCreatingSelection || IsDraggingFloating) return false;
+
+        Rectangle menuRect = GetFloatingMenuBounds(canvas, camera);
+        float menuX = menuRect.X;
+        float menuY = menuRect.Y;
 
         Raylib.DrawRectangleRec(menuRect, new Color(28, 28, 32, 245));
         Raylib.DrawRectangleLinesEx(menuRect, 1, Color.SkyBlue);
 
-        string[] labels = { "Kopyala", "Kes", "Cogalt", "Sil", "X" };
-        int[] widths = { 62, 45, 58, 42, 28 };
-        Color[] colors = {
-            new Color(50, 80, 130, 255),
-            new Color(120, 80, 40, 255),
-            new Color(45, 110, 75, 255),
-            new Color(130, 45, 45, 255),
-            new Color(70, 70, 70, 255)
-        };
-
         float curX = menuX + 6;
         bool interacted = Raylib.CheckCollisionPointRec(mouseScreenPos, menuRect);
+        bool click = Raylib.IsMouseButtonPressed(MouseButton.Left);
 
-        for (int i = 0; i < labels.Length; i++)
+        if (floatingMenuState == 0) // 0: ANA MENÜ
         {
-            Rectangle btnRect = new Rectangle(curX, menuY + 4, widths[i], 24);
-            bool hover = Raylib.CheckCollisionPointRec(mouseScreenPos, btnRect);
+            string[] labels = { "Kopyala", "Kes", "Cogalt", "Sil", "Yansit", "Dondur", "X" };
+            int[] widths = { 58, 40, 52, 38, 55, 60, 28 };
+            Color[] colors = {
+                new Color(50, 80, 130, 255), new Color(120, 80, 40, 255),
+                new Color(45, 110, 75, 255), new Color(130, 45, 45, 255),
+                new Color(60, 60, 80, 255), new Color(60, 60, 80, 255),
+                new Color(70, 70, 70, 255)
+            };
 
-            Color bg = hover
-                ? new Color((byte)Math.Min(255, colors[i].R + 30), (byte)Math.Min(255, colors[i].G + 30), (byte)Math.Min(255, colors[i].B + 30), (byte)255)
-                : colors[i];
-
-            Raylib.DrawRectangleRec(btnRect, bg);
-            Raylib.DrawRectangleLinesEx(btnRect, 1, Color.Gray);
-
-            int tw = Raylib.MeasureText(labels[i], 12);
-            Raylib.DrawText(labels[i], (int)(btnRect.X + (btnRect.Width - tw) / 2), (int)btnRect.Y + 6, 12, Color.White);
-
-            if (hover && Raylib.IsMouseButtonPressed(MouseButton.Left))
+            for (int i = 0; i < labels.Length; i++)
             {
-                switch (i)
+                Rectangle btnRect = new Rectangle(curX, menuY + 4, widths[i], 24);
+                bool hover = Raylib.CheckCollisionPointRec(mouseScreenPos, btnRect);
+                Raylib.DrawRectangleRec(btnRect, hover ? new Color((byte)Math.Min(255, colors[i].R + 30), (byte)Math.Min(255, colors[i].G + 30), (byte)Math.Min(255, colors[i].B + 30), (byte)255) : colors[i]);
+                Raylib.DrawRectangleLinesEx(btnRect, 1, Color.Gray);
+                int tw = Raylib.MeasureText(labels[i], 12);
+                Raylib.DrawText(labels[i], (int)(btnRect.X + (btnRect.Width - tw) / 2), (int)btnRect.Y + 6, 12, Color.White);
+
+                if (hover && click)
                 {
-                    case 0:
-                        Copy(canvas);
-                        onStatus("Secim kopyalandi (Ctrl+C)");
-                        break;
-                    case 1:
-                        Cut(canvas, history);
-                        onStatus("Secim kesildi (Ctrl+X)");
-                        break;
-                    case 2:
-                        Duplicate(canvas, history);
-                        onStatus("Secim cogaltildi (Ctrl+D)");
-                        break;
-                    case 3:
-                        DeleteSelection(canvas, history);
-                        onStatus("Secim silindi (Del)");
-                        break;
-                    case 4:
-                        CancelOrCommit(canvas);
-                        onStatus("Secim tamamlandi / kapatildi");
-                        break;
+                    if (i == 0) { Copy(canvas); onStatus("Secim kopyalandi (Ctrl+C)"); }
+                    else if (i == 1) { Cut(canvas, history); onStatus("Secim kesildi (Ctrl+X)"); }
+                    else if (i == 2) { Duplicate(canvas, history); onStatus("Secim cogaltildi (Ctrl+D)"); }
+                    else if (i == 3) { DeleteSelection(canvas, history); onStatus("Secim silindi (Del)"); }
+                    else if (i == 4) floatingMenuState = 1;
+                    else if (i == 5) { BeginRotationSession(canvas, history); floatingMenuState = 2; }
+                    else if (i == 6) { CancelOrCommit(canvas); onStatus("Secim tamamlandi"); }
+                    return true;
                 }
-                return true;
+                curX += widths[i] + 6;
+            }
+        }
+        else if (floatingMenuState == 1) // 1: YANSIT MENÜSÜ
+        {
+            string[] labels = { "Yatay", "Dikey", "Geri" };
+            int[] widths = { 50, 50, 40 };
+
+            for (int i = 0; i < labels.Length; i++)
+            {
+                Rectangle btnRect = new Rectangle(curX, menuY + 4, widths[i], 24);
+                bool hover = Raylib.CheckCollisionPointRec(mouseScreenPos, btnRect);
+                Raylib.DrawRectangleRec(btnRect, hover ? new Color(90, 90, 110, 255) : new Color(60, 60, 80, 255));
+                Raylib.DrawRectangleLinesEx(btnRect, 1, Color.Gray);
+                int tw = Raylib.MeasureText(labels[i], 12);
+                Raylib.DrawText(labels[i], (int)(btnRect.X + (btnRect.Width - tw) / 2), (int)btnRect.Y + 6, 12, Color.White);
+
+                if (hover && click)
+                {
+                    if (i == 0) { FlipHorizontal(canvas, history); onStatus("Yatay yansitildi."); floatingMenuState = 0; }
+                    else if (i == 1) { FlipVertical(canvas, history); onStatus("Dikey yansitildi."); floatingMenuState = 0; }
+                    else if (i == 2) floatingMenuState = 0;
+                    return true;
+                }
+                curX += widths[i] + 6;
+            }
+        }
+        else if (floatingMenuState == 2) // 2: CANLI ÇARKLI DÖNDÜRME MENÜSÜ
+        {
+            // 1. DÖNDÜRME ÇARKI (DIAL)
+            Vector2 dialCenter = new Vector2(curX + 20, menuY + 24);
+            float dialRadius = 18f;
+            bool hoverDial = Vector2.Distance(mouseScreenPos, dialCenter) <= dialRadius + 4;
+
+            if (click && hoverDial)
+            {
+                IsDraggingDial = true;
+                isRotateInputActive = false;
             }
 
-            curX += widths[i] + 6;
+            if (IsDraggingDial)
+            {
+                if (Raylib.IsMouseButtonDown(MouseButton.Left))
+                {
+                    float dx = mouseScreenPos.X - dialCenter.X;
+                    float dy = mouseScreenPos.Y - dialCenter.Y;
+                    float deg = MathF.Atan2(dy, dx) * (180f / MathF.PI) + 90f;
+                    if (deg > 180f) deg -= 360f;
+                    if (deg < -180f) deg += 360f;
+
+                    // Shift basılıysa 15 derecelik açılara kilitle
+                    if (Raylib.IsKeyDown(KeyboardKey.LeftShift) || Raylib.IsKeyDown(KeyboardKey.RightShift))
+                        deg = MathF.Round(deg / 15f) * 15f;
+                    else
+                        deg = MathF.Round(deg);
+
+                    if (MathF.Abs(deg - currentRotationAngle) >= 0.5f)
+                    {
+                        currentRotationAngle = deg;
+                        rotateAngleText = ((int)currentRotationAngle).ToString();
+                        ApplyLiveRotation(canvas, currentRotationAngle);
+                    }
+                }
+                else
+                {
+                    IsDraggingDial = false;
+                }
+            }
+
+            // Çarkın Çizimi
+            Raylib.DrawCircleV(dialCenter, dialRadius, new Color(40, 40, 48, 255));
+            Raylib.DrawCircleLines((int)dialCenter.X, (int)dialCenter.Y, dialRadius, IsDraggingDial || hoverDial ? Color.Yellow : Color.SkyBlue);
+
+            // Çark üzerindeki 0, 90, 180, -90 çentikleri
+            for (int a = 0; a < 360; a += 90)
+            {
+                float r = a * (MathF.PI / 180f);
+                Vector2 p1 = new Vector2(dialCenter.X + MathF.Cos(r) * (dialRadius - 3), dialCenter.Y + MathF.Sin(r) * (dialRadius - 3));
+                Vector2 p2 = new Vector2(dialCenter.X + MathF.Cos(r) * dialRadius, dialCenter.Y + MathF.Sin(r) * dialRadius);
+                Raylib.DrawLineV(p1, p2, Color.Gray);
+            }
+
+            // Çarkın İbresi ve Tutamacı
+            float radAngle = (currentRotationAngle - 90f) * (MathF.PI / 180f);
+            Vector2 knobPos = new Vector2(
+                dialCenter.X + MathF.Cos(radAngle) * (dialRadius - 4),
+                dialCenter.Y + MathF.Sin(radAngle) * (dialRadius - 4)
+            );
+            Raylib.DrawLineEx(dialCenter, knobPos, 2f, Color.Yellow);
+            Raylib.DrawCircleV(knobPos, 3.5f, Color.Red);
+            Raylib.DrawCircleV(dialCenter, 2f, Color.White);
+
+            curX += 46;
+
+            // 2. AÇI METİN KUTUSU (Elle yazarken anında döndürür)
+            Rectangle inputRect = new Rectangle(curX, menuY + 12, 46, 24);
+            bool inputHover = Raylib.CheckCollisionPointRec(mouseScreenPos, inputRect);
+            if (click) isRotateInputActive = inputHover;
+
+            if (isRotateInputActive)
+            {
+                bool textChanged = false;
+                int key = Raylib.GetCharPressed();
+                while (key > 0)
+                {
+                    if ((char.IsDigit((char)key) || key == '-') && rotateAngleText.Length < 5)
+                    {
+                        if (key == '-')
+                        {
+                            if (rotateAngleText.StartsWith("-")) rotateAngleText = rotateAngleText[1..];
+                            else rotateAngleText = "-" + rotateAngleText;
+                            textChanged = true;
+                        }
+                        else
+                        {
+                            if (rotateAngleText == "0") rotateAngleText = ((char)key).ToString();
+                            else rotateAngleText += (char)key;
+                            textChanged = true;
+                        }
+                    }
+                    key = Raylib.GetCharPressed();
+                }
+                if (Raylib.IsKeyPressed(KeyboardKey.Backspace) && rotateAngleText.Length > 0)
+                {
+                    rotateAngleText = rotateAngleText[..^1];
+                    textChanged = true;
+                }
+
+                if (textChanged)
+                {
+                    if (float.TryParse(rotateAngleText, out float parsedAngle))
+                    {
+                        currentRotationAngle = Math.Clamp(parsedAngle, -360f, 360f);
+                        ApplyLiveRotation(canvas, currentRotationAngle);
+                    }
+                    else if (string.IsNullOrEmpty(rotateAngleText) || rotateAngleText == "-")
+                    {
+                        currentRotationAngle = 0f;
+                        ApplyLiveRotation(canvas, 0f);
+                    }
+                }
+            }
+
+            Raylib.DrawRectangleRec(inputRect, isRotateInputActive ? new Color(15, 15, 20, 255) : new Color(40, 40, 45, 255));
+            Raylib.DrawRectangleLinesEx(inputRect, 1, isRotateInputActive ? Color.Yellow : Color.Gray);
+            string displayAngle = rotateAngleText + (isRotateInputActive && (int)(Raylib.GetTime() * 3) % 2 == 0 ? "|" : "°");
+            Raylib.DrawText(displayAngle, (int)inputRect.X + 5, (int)inputRect.Y + 6, 12, isRotateInputActive ? Color.Yellow : Color.White);
+
+            curX += 52;
+
+            // 3. HAZIR AÇI VE ONAY BUTONLARI
+            string[] labels = { "-90", "90", "180", "Onayla", "Iptal" };
+            int[] widths = { 34, 30, 34, 52, 42 };
+
+            for (int i = 0; i < labels.Length; i++)
+            {
+                Rectangle btnRect = new Rectangle(curX, menuY + 12, widths[i], 24);
+                bool hover = Raylib.CheckCollisionPointRec(mouseScreenPos, btnRect);
+                Color bg = i == 3 ? new Color(45, 110, 75, 255) : (i == 4 ? new Color(120, 45, 45, 255) : new Color(60, 60, 80, 255));
+                if (hover) bg = new Color((byte)Math.Min(255, bg.R + 30), (byte)Math.Min(255, bg.G + 30), (byte)Math.Min(255, bg.B + 30), (byte)255);
+
+                Raylib.DrawRectangleRec(btnRect, bg);
+                Raylib.DrawRectangleLinesEx(btnRect, 1, Color.Gray);
+                int tw = Raylib.MeasureText(labels[i], 12);
+                Raylib.DrawText(labels[i], (int)(btnRect.X + (btnRect.Width - tw) / 2), (int)btnRect.Y + 6, 12, Color.White);
+
+                if (hover && click)
+                {
+                    if (i == 0) { currentRotationAngle = -90f; rotateAngleText = "-90"; ApplyLiveRotation(canvas, -90f); }
+                    else if (i == 1) { currentRotationAngle = 90f; rotateAngleText = "90"; ApplyLiveRotation(canvas, 90f); }
+                    else if (i == 2) { currentRotationAngle = 180f; rotateAngleText = "180"; ApplyLiveRotation(canvas, 180f); }
+                    else if (i == 3) // Onayla
+                    {
+                        ClearRotationBackup();
+                        floatingMenuState = 0;
+                        isRotateInputActive = false;
+                        onStatus($"{currentRotationAngle}° donduruldu.");
+                    }
+                    else if (i == 4) // İptal (Eski haline geri döndür)
+                    {
+                        RestoreRotationBackup(canvas.Width, canvas.Height);
+                        ClearRotationBackup();
+                        floatingMenuState = 0;
+                        isRotateInputActive = false;
+                        onStatus("Dondurme iptal edildi.");
+                    }
+                    return true;
+                }
+                curX += widths[i] + 5;
+            }
         }
 
-        return interacted && Raylib.IsMouseButtonPressed(MouseButton.Left);
+        return (interacted && click) || IsDraggingDial;
     }
 }

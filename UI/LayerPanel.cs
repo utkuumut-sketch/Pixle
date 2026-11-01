@@ -9,7 +9,10 @@ public class LayerPanel
 {
     public float Height { get; } = 86f; 
     public void ToggleHidden() { IsHidden = !IsHidden; }
-    public bool IsHidden { get; private set; } = false; 
+    public bool IsHidden { get; private set; } = false;
+    public float SlideProgress { get; private set; } = 0f; // 0f: Tam Acik, 1f: Tam Gizli (Asagi Kaymis)
+
+    public float GetVisibleHeight() => Height * (1f - SlideProgress);
     
     private float scrollX = 0f;
     private bool isDraggingScrollbar = false;
@@ -21,15 +24,27 @@ public class LayerPanel
 
     private Rectangle GetPanelBounds(int screenWidth, int screenHeight)
     {
-        float leftMargin = 145f;  
-        float rightMargin = 180f; 
+        float leftMargin = AppSettings.LeftPanelWidth;
+        float rightMargin = AppSettings.RightPanelWidth;
         float panelWidth = screenWidth - leftMargin - rightMargin;
-        float panelY = IsHidden ? screenHeight : screenHeight - Height; 
+        float panelY = screenHeight - Height + (Height * SlideProgress);
         return new Rectangle(leftMargin, panelY, panelWidth, Height);
     }
 
     public bool Update(Canvas canvas, HistoryManager history, Vector2 mousePos, int screenWidth, int screenHeight, Action onLayerChanged)
     {
+        // ASAGI / YUKARI KAYMA ANIMASYONU GUNCELLEMESI
+        float targetSlide = IsHidden ? 1f : 0f;
+        if (!AppSettings.EnableUIAnimations)
+        {
+            SlideProgress = targetSlide;
+        }
+        else if (Math.Abs(SlideProgress - targetSlide) > 0.001f)
+        {
+            SlideProgress = Raymath.Lerp(SlideProgress, targetSlide, Math.Min(1f, Raylib.GetFrameTime() * AppSettings.UIAnimationSpeed));
+            if (Math.Abs(SlideProgress - targetSlide) < 0.005f) SlideProgress = targetSlide;
+        }
+
         Rectangle panelRect = GetPanelBounds(screenWidth, screenHeight);
         
         Rectangle toggleBtn = new Rectangle(panelRect.X + 10, panelRect.Y - 18, 44, 18);
@@ -39,7 +54,12 @@ public class LayerPanel
             return true; 
         }
 
-        if (IsHidden) return false;
+        if (IsHidden || SlideProgress > 0.1f)
+        {
+            draggingLayerIndex = -1;
+            isDraggingScrollbar = false;
+            return false;
+        }
 
         if (!Raylib.CheckCollisionPointRec(mousePos, panelRect)) 
         {
@@ -125,11 +145,11 @@ public class LayerPanel
                         Rectangle delBtn = new Rectangle(boxRect.X + boxSize - 18, boxRect.Y + 2, 16, 16);
 
                         if (Raylib.CheckCollisionPointRec(mousePos, eyeRect))
-{
-    canvas.Layers[i].IsVisible = !canvas.Layers[i].IsVisible;
-    canvas.Frames[canvas.ActiveFrameIndex].IsThumbnailDirty = true;
-    onLayerChanged(); // YENI: Katman gorunurlugu degistiginde bildir
-}
+                        {
+                            canvas.Layers[i].IsVisible = !canvas.Layers[i].IsVisible;
+                            canvas.Frames[canvas.ActiveFrameIndex].IsThumbnailDirty = true;
+                            onLayerChanged();
+                        }
                         else if (Raylib.CheckCollisionPointRec(mousePos, delBtn) && canvas.Layers.Count > 1)
                         {
                             history.SaveState(canvas);
@@ -170,14 +190,14 @@ public class LayerPanel
         if (IsHidden)
         {
             for (int j = 0; j < 2; j++) { Raylib.DrawLine(cx - 4, cy + 1 + j, cx, cy - 3 + j, Color.LightGray); Raylib.DrawLine(cx, cy - 3 + j, cx + 4, cy + 1 + j, Color.LightGray); }
-            return;
         }
         else
         {
             for (int j = 0; j < 2; j++) { Raylib.DrawLine(cx - 4, cy - 2 + j, cx, cy + 2 + j, Color.LightGray); Raylib.DrawLine(cx, cy + 2 + j, cx + 4, cy - 2 + j, Color.LightGray); }
         }
 
-        // YENİ: Ayarlar'dan kontrol edilebilen yarı şeffaf gölge arka planı
+        if (SlideProgress >= 0.99f) return;
+
         if (AppSettings.ShowPanelBackdrops)
         {
             Raylib.DrawRectangle((int)panelRect.X, (int)panelRect.Y - 4, (int)panelRect.Width, 4, new Color(0, 0, 0, 75));
@@ -191,7 +211,10 @@ public class LayerPanel
         float startY = panelRect.Y + 10;
         Vector2 mousePos = Raylib.GetMousePosition();
 
-        Raylib.BeginScissorMode((int)panelRect.X, (int)panelRect.Y, (int)panelRect.Width, (int)Height);
+        int visibleH = Math.Max(0, screenHeight - (int)panelRect.Y);
+        if (visibleH <= 0) return;
+
+        Raylib.BeginScissorMode((int)panelRect.X, (int)panelRect.Y, (int)panelRect.Width, visibleH);
 
         for (int i = 0; i <= canvas.Layers.Count; i++)
         {
@@ -216,8 +239,6 @@ public class LayerPanel
             DrawLayerBox(canvas, draggingLayerIndex, dragRect, mousePos, isDragging: true);
         }
         
-        Raylib.EndScissorMode();
-
         int itemCount = canvas.Layers.Count + 1;
         float totalWidth = itemCount * boxSize + (itemCount - 1) * spacing + 24;
         float maxScroll = Math.Max(0, totalWidth - panelRect.Width);
@@ -230,6 +251,8 @@ public class LayerPanel
             Raylib.DrawRectangle((int)trackX, (int)trackY, (int)trackWidth, 5, new Color(15, 15, 15, 180));
             Raylib.DrawRectangle((int)(trackX + (scrollX / maxScroll) * (trackWidth - thumbWidth)), (int)trackY, (int)thumbWidth, 5, isDraggingScrollbar ? Color.SkyBlue : Color.Gray);
         }
+
+        Raylib.EndScissorMode();
     }
 
     private void DrawLayerBox(Canvas canvas, int index, Rectangle boxRect, Vector2 mousePos, bool isDragging = false)
@@ -249,7 +272,6 @@ public class LayerPanel
         float thumbX = boxRect.X + (boxSize - drawW) / 2f;
         float thumbY = boxRect.Y + (boxSize - drawH) / 2f;
 
-        // PERFORMANS: İç içe for döngüsü yerine katmanın kendi GPU dokusunu tek seferde çiz!
         Texture2D layerTex = canvas.Layers[index].GetOrUpdateTexture();
         Raylib.DrawTexturePro(
             layerTex,
@@ -262,8 +284,8 @@ public class LayerPanel
 
         Raylib.DrawRectangle((int)boxRect.X, (int)boxRect.Y, boxSize, 18, new Color(0, 0, 0, 160));
         string lName = canvas.Layers[index].Name;
-if (lName.Length > 7) lName = lName[..7];
-Raylib.DrawText(lName, (int)boxRect.X + 5, (int)boxRect.Y + 4, 10, isActive ? Color.Yellow : Color.RayWhite);
+        if (lName.Length > 7) lName = lName[..7];
+        Raylib.DrawText(lName, (int)boxRect.X + 5, (int)boxRect.Y + 4, 10, isActive ? Color.Yellow : Color.RayWhite);
 
         int eyeCx = (int)boxRect.X + boxSize - 12;
         int eyeCy = (int)boxRect.Y + boxSize - 10;

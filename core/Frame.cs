@@ -16,6 +16,8 @@ public class Frame : IDisposable
     private bool hasThumb = false;
     private Color[]? flatThumb;
 
+    
+
     public Texture2D GetOrUpdateThumbnail(int w, int h)
     {
         foreach (var l in Layers)
