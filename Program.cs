@@ -30,7 +30,22 @@ class Program
     static LayerPanel layerPanel = null!;
     static AnimationPanel animationPanel = null!;
 
-    const int RightPanelWidth = 180;
+    static int LeftPanelWidth
+    {
+        get => AppSettings.LeftPanelWidth;
+        set => AppSettings.LeftPanelWidth = value;
+    }
+    static int RightPanelWidth
+    {
+        get => AppSettings.RightPanelWidth;
+        set => AppSettings.RightPanelWidth = value;
+    }
+
+    static bool isDraggingLeftPanel = false;
+    static bool isDraggingRightPanel = false;
+    static bool isHoveringLeftEdge = false;
+    static bool isHoveringRightEdge = false;
+
     const float WorkspaceTopY = 72f;
 
     static readonly float[] ZoomLevels = new float[] 
@@ -53,8 +68,11 @@ class Program
     static void Main()
     {
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
-        Raylib.InitWindow(1080, 740, "Pixel Art Studio");
-        Raylib.SetTargetFPS(60);
+        // Main() icinde Raylib.InitWindow hemen altina:
+Raylib.InitWindow(1080, 740, "Pixel Art Studio");
+Raylib.SetWindowMinSize(760, 520); // Dar pencere boyutlarinda arayuzun cokmesini ve Clamp hatasini onler
+
+        Raylib.SetTargetFPS(AppSettings.TargetFPS);
         Raylib.SetExitKey(KeyboardKey.Null);
         PixelSkin.LoadSkin();
 
@@ -100,7 +118,21 @@ class Program
         topMenu.AddCategory("Gorunum", items =>
         {
             items.Add(new MenuItem("Izgara Ac/Kapat", ToggleGrid));
+            items.Add(new MenuItem("Sogan Zari (Onion Skin) Ac/Kapat", () => 
+            { 
+                AppSettings.EnableOnionSkin = !AppSettings.EnableOnionSkin; 
+                ShowStatus(AppSettings.EnableOnionSkin ? "Onion Skin Acildi" : "Onion Skin Kapatildi"); 
+            }));
+            items.Add(new MenuItem("Animasyon Paneli Gizle/Ac (Yukari Ok)", () => animationPanel.ToggleHidden()));
+            items.Add(new MenuItem("Katman Paneli Gizle/Ac (Asagi Ok)", () => layerPanel.ToggleHidden()));
             items.Add(new MenuItem("Kamerayi Sifirla", () => { if (ActiveTab != null) CenterCamera(ActiveTab); }));
+            items.Add(new MenuItem("Panellerin Yerini Sifirla", () => 
+            { 
+                LeftPanelWidth = 145; 
+                RightPanelWidth = 180; 
+                toolPanel.Width = 145f;
+                ShowStatus("Panellerin genisligi sifirlandi."); 
+            }));
             items.Add(new MenuItem("Ana Ekran (Home)", () => SwitchToTab(-1)));
         });
 
@@ -108,7 +140,6 @@ class Program
 
         while (!shouldExit)
         {
-            // Pencerenin sag ust X tusuna basildiginda kaydedilmemis projeleri kontrol et
             if (Raylib.WindowShouldClose())
             {
                 RequestExitApp();
@@ -150,20 +181,18 @@ class Program
     {
         string title = customTitle ?? $"Sprite-{untitledCounter++}";
         ProjectTab newTab = new ProjectTab(title, width, height, bgColor, isGridVisible);
-        newTab.IsDirty = false; // Yeni olusturulan bos proje temiz baslar
+        newTab.IsDirty = false;
         tabs.Add(newTab);
         SwitchToTab(tabs.Count - 1);
         CenterCamera(newTab);
         ShowStatus($"Yeni proje olusturuldu: {width}x{height}");
     }
 
-    // .LOOM KAYDETME VE FARKLI KAYDETME METODU
     static bool SaveTabProject(ProjectTab tab, bool saveAs)
     {
         tab.Fps = animationPanel.Fps;
         string? targetPath = tab.FilePath;
 
-        // Eger daha once kaydedilmemisse, Farkli Kaydet secildiyse veya mevcut yol .loom degilse (orn: PNG'den acildiysa) diyalog ac
         if (saveAs || string.IsNullOrWhiteSpace(targetPath) || !targetPath.EndsWith(".loom", StringComparison.OrdinalIgnoreCase))
         {
             targetPath = Exporter.SaveLoomDialog(tab.FilePath, tab.Title);
@@ -187,7 +216,6 @@ class Program
         }
     }
 
-    // SEKME KAPATMA ISTEGI (Kaydedilmemis degisiklik varsa onay penceresi acar)
     static void RequestCloseTab(int index)
     {
         if (index < 0 || index >= tabs.Count) return;
@@ -231,7 +259,6 @@ class Program
         else SwitchToTab(activeTabIndex);
     }
 
-    // UYGULAMADAN CIKIS ISTEGI (Kaydedilmemis tum sekmeleri sirayla sorar)
     static void RequestExitApp()
     {
         if (unsavedDialog.IsOpen) return;
@@ -254,16 +281,15 @@ class Program
                 {
                     int idx = tabs.IndexOf(dirtyTab);
                     if (idx >= 0) ForceCloseTab(idx);
-                    RequestExitApp(); // Siradaki kaydedilmemis sekmeyi kontrol et
+                    RequestExitApp();
                 }
             }
             else if (result == UnsavedDialogResult.Discard)
             {
                 int idx = tabs.IndexOf(dirtyTab);
                 if (idx >= 0) ForceCloseTab(idx);
-                RequestExitApp(); // Siradaki kaydedilmemis sekmeyi kontrol et
+                RequestExitApp();
             }
-            // Cancel secilirse hicbir sey yapma, uygulamada kal
         });
     }
 
@@ -281,7 +307,6 @@ class Program
             return;
         }
 
-        // Eger bu dosya zaten acik bir sekmede varsa, yeniden acmak yerine o sekmeye gec
         int existingIdx = tabs.FindIndex(t => !string.IsNullOrEmpty(t.FilePath) && string.Equals(t.FilePath, path, StringComparison.OrdinalIgnoreCase));
         if (existingIdx >= 0)
         {
@@ -290,13 +315,11 @@ class Program
             return;
         }
 
-        // 1. Eger dosya .loom uzantiliysa LoomFileManager ile yukle
         if (path.EndsWith(".loom", StringComparison.OrdinalIgnoreCase))
         {
             ProjectTab? loadedTab = LoomFileManager.LoadProject(path, out List<Color>? loadedPalette, out string errorMsg);
             if (loadedTab == null)
             {
-                // Basarisiz yukleme durumunda mevcut acik sekme ve veriler hic bozulmaz!
                 ShowStatus(errorMsg);
                 return;
             }
@@ -314,7 +337,6 @@ class Program
             return;
         }
 
-        // 2. Eger PNG / JPG / BMP ise mevcut gorsel ice aktarma mantigiyla ac
         Image img = Raylib.LoadImage(path);
         if (img.Width <= 0 || img.Height <= 0)
         {
@@ -375,8 +397,8 @@ class Program
     {
         int sw = Raylib.GetScreenWidth();
         int sh = Raylib.GetScreenHeight();
-        float centerAreaX = (toolPanel.Width + (sw - RightPanelWidth)) / 2f;
-        float centerAreaY = (WorkspaceTopY + animationPanel.Height + (sh - layerPanel.Height)) / 2f;
+        float centerAreaX = (LeftPanelWidth + (sw - RightPanelWidth)) / 2f;
+        float centerAreaY = (WorkspaceTopY + animationPanel.GetVisibleHeight() + (sh - layerPanel.GetVisibleHeight())) / 2f;
         Camera2D cam = new Camera2D();
         cam.Target = new Vector2((tab.Canvas.Width * tab.Canvas.PixelScale) / 2f, (tab.Canvas.Height * tab.Canvas.PixelScale) / 2f);
         cam.Offset = new Vector2(centerAreaX, centerAreaY);
@@ -407,8 +429,8 @@ class Program
         if (Raylib.IsKeyPressed(KeyboardKey.F11)) Raylib.ToggleFullscreen();
 
         palette.Offset = new Vector2(sw - RightPanelWidth + 20, WorkspaceTopY + 35);
+        toolPanel.Width = LeftPanelWidth;
 
-        // 1. Onay ve Diyalog Pencereleri (Aciksa diger etkilesimleri bloklar)
         if (unsavedDialog.IsOpen)
         {
             unsavedDialog.Update(mouseScreenPos);
@@ -440,11 +462,11 @@ class Program
             return;
         }
 
-        if (settingsDialog.IsOpen)
-        {
-            settingsDialog.Update(mouseScreenPos, ToggleGrid);
-            return;
-        }
+      if (settingsDialog.IsOpen)
+{
+    settingsDialog.Update(mouseScreenPos, ToggleGrid, isGridVisible);
+    return;
+}
 
         if (colorPicker.IsOpen)
         {
@@ -465,10 +487,64 @@ class Program
             return;
         }
 
+        if (ActiveTab != null && AppSettings.EnablePanelResize)
+{
+    // Pencere kucultuldugunde panellerin ortadaki cizim alanini (en az 160px) yutmamasini sagla
+    int maxLeftAllowed = Math.Max(110, Math.Min(sw / 2 - 80, sw - RightPanelWidth - 160));
+    int maxRightAllowed = Math.Max(165, Math.Min(sw / 2 - 80, sw - LeftPanelWidth - 160));
+
+    LeftPanelWidth = Math.Clamp(LeftPanelWidth, 110, maxLeftAllowed);
+    RightPanelWidth = Math.Clamp(RightPanelWidth, 165, maxRightAllowed);
+    toolPanel.Width = LeftPanelWidth;
+
+    Rectangle leftDragZone = new Rectangle(LeftPanelWidth - 4, WorkspaceTopY, 8, sh - WorkspaceTopY);
+    Rectangle rightDragZone = new Rectangle(sw - RightPanelWidth - 4, WorkspaceTopY, 8, sh - WorkspaceTopY);
+
+    isHoveringLeftEdge = Raylib.CheckCollisionPointRec(mouseScreenPos, leftDragZone);
+    isHoveringRightEdge = Raylib.CheckCollisionPointRec(mouseScreenPos, rightDragZone);
+
+    if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+    {
+        if (isHoveringLeftEdge) isDraggingLeftPanel = true;
+        else if (isHoveringRightEdge) isDraggingRightPanel = true;
+    }
+
+    if (isDraggingLeftPanel)
+    {
+        if (Raylib.IsMouseButtonDown(MouseButton.Left))
+        {
+            LeftPanelWidth = Math.Clamp((int)mouseScreenPos.X, 110, maxLeftAllowed);
+            toolPanel.Width = LeftPanelWidth;
+        }
+        else
+        {
+            isDraggingLeftPanel = false;
+        }
+        return;
+    }
+
+    if (isDraggingRightPanel)
+    {
+        if (Raylib.IsMouseButtonDown(MouseButton.Left))
+        {
+            RightPanelWidth = Math.Clamp(sw - (int)mouseScreenPos.X, 165, maxRightAllowed);
+        }
+        else
+        {
+            isDraggingRightPanel = false;
+        }
+        return;
+    }
+}
+else
+{
+    isHoveringLeftEdge = false;
+    isHoveringRightEdge = false;
+}
+
         bool isCtrlDown = Raylib.IsKeyDown(KeyboardKey.LeftControl) || Raylib.IsKeyDown(KeyboardKey.RightControl);
         bool isShiftDown = Raylib.IsKeyDown(KeyboardKey.LeftShift) || Raylib.IsKeyDown(KeyboardKey.RightShift);
-
-        // Global Dosya Kisayollari
+        
         if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.N)) { newProjectDialog.Open(); return; }
         if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.O)) { OpenProjectWithDialog(); return; }
         if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.W) && activeTabIndex >= 0) { RequestCloseTab(activeTabIndex); return; }
@@ -509,7 +585,15 @@ class Program
         Camera2D camera = ActiveTab.Camera;
 
         targetZoom = ZoomLevels[ActiveTab.ZoomIndex];
-        if (Math.Abs(camera.Zoom - targetZoom) > 0.005f)
+        if (!AppSettings.SmoothCameraZoom)
+        {
+            if (camera.Zoom != targetZoom)
+            {
+                camera.Zoom = targetZoom;
+                ActiveTab.Camera = camera;
+            }
+        }
+        else if (Math.Abs(camera.Zoom - targetZoom) > 0.005f)
         {
             camera.Zoom = Raymath.Lerp(camera.Zoom, targetZoom, Raylib.GetFrameTime() * 14f);
             ActiveTab.Camera = camera;
@@ -580,18 +664,14 @@ class Program
             return;
         }
 
+        // YUKARI OK: Animasyon Panelini Gizle/Ac | ASAGI OK: Katman Panelini Gizle/Ac
+        if (Raylib.IsKeyPressed(AppSettings.KeyToggleAnimPanel)) animationPanel.ToggleHidden();
         if (Raylib.IsKeyPressed(AppSettings.KeyToggleLayers)) layerPanel.ToggleHidden();
 
         if (selection.HasSelection && !selection.IsCreatingSelection && !selection.IsDraggingFloating)
         {
-            Rectangle curBounds = selection.GetCurrentBounds();
-            Vector2 bottomCenterWorld = new Vector2(
-                canvas.Offset.X + (curBounds.X + curBounds.Width / 2f) * canvas.PixelScale,
-                canvas.Offset.Y + (curBounds.Y + curBounds.Height) * canvas.PixelScale
-            );
-            Vector2 screenAnchor = Raylib.GetWorldToScreen2D(bottomCenterWorld, camera);
-            Rectangle menuRect = new Rectangle(Math.Clamp(screenAnchor.X - 142.5f, 150, sw - 190 - 285), Math.Clamp(screenAnchor.Y + 12, 45, sh - 45), 285, 32);
-
+            if (selection.IsDraggingDial) return;
+            Rectangle menuRect = selection.GetFloatingMenuBounds(canvas, camera);
             if (Raylib.CheckCollisionPointRec(mouseScreenPos, menuRect))
                 if (Raylib.IsMouseButtonPressed(MouseButton.Left) || Raylib.IsMouseButtonDown(MouseButton.Left)) return;
         }
@@ -618,7 +698,7 @@ class Program
 
         bool insideDrawingArea = !topMenuIntercepted && !tabBarIntercepted && !animPanelIntercepted &&
                                  !toolPanelIntercepted && !paletteIntercepted && !layerPanelIntercepted &&
-                                 mouseScreenPos.X >= toolPanel.Width && mouseScreenPos.X < (sw - RightPanelWidth) &&
+                                 mouseScreenPos.X >= LeftPanelWidth && mouseScreenPos.X < (sw - RightPanelWidth) &&
                                  mouseScreenPos.Y >= WorkspaceTopY;
 
         float wheel = Raylib.GetMouseWheelMove();
@@ -634,7 +714,7 @@ class Program
                 else
                 {
                     toolManager.PenSize = Math.Clamp(toolManager.PenSize + (int)Math.Sign(wheel), 1, 50);
-                    ShowStatus($"Kalem Boyutu: {toolManager.PenSize}px");
+                    ShowStatus($"Firca Boyutu: {toolManager.PenSize}px");
                 }
             }
             else
@@ -661,7 +741,7 @@ class Program
             ActiveTab.Camera = camera;
         }
 
-        if (!isCtrlDown && !topMenuIntercepted && !tabBarIntercepted && !paletteIntercepted && !toolPanelIntercepted)
+        if (!isCtrlDown && !topMenuIntercepted && !tabBarIntercepted && !paletteIntercepted && !toolPanelIntercepted && !sizeInputActive && !selection.isRotateInputActive)
         {
             for (int i = 0; i < AppSettings.KeyColors.Length; i++)
             {
@@ -676,6 +756,8 @@ class Program
             if (Raylib.IsKeyPressed(AppSettings.KeyBucket)) SelectTool(ToolType.Bucket);
             if (Raylib.IsKeyPressed(AppSettings.KeySmartBucket)) SelectTool(ToolType.SmartBucket);
             if (Raylib.IsKeyPressed(AppSettings.KeyEyedropper)) SelectTool(ToolType.Eyedropper);
+            if (Raylib.IsKeyPressed(AppSettings.KeyBlur)) SelectTool(ToolType.Blur);
+            if (Raylib.IsKeyPressed(AppSettings.KeyJumble)) SelectTool(ToolType.Jumble);
             if (Raylib.IsKeyPressed(AppSettings.KeyLine)) SelectTool(ToolType.Line);
             if (Raylib.IsKeyPressed(AppSettings.KeyShape)) SelectTool(ToolType.Shape);
             if (Raylib.IsKeyPressed(AppSettings.KeySelectMove)) SelectTool(ToolType.SelectMove);
@@ -688,7 +770,7 @@ class Program
         else if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.V)) { SelectTool(ToolType.SelectMove); selection.Paste(canvas, history); ShowStatus("Yapistirildi"); }
         else if (isCtrlDown && Raylib.IsKeyPressed(KeyboardKey.D) && selection.HasSelection) { selection.Duplicate(canvas, history); ShowStatus("Secim cogaltildi"); }
 
-        if ((Raylib.IsKeyPressed(KeyboardKey.Delete) || Raylib.IsKeyPressed(KeyboardKey.Backspace)) && selection.HasSelection) { selection.DeleteSelection(canvas, history); ShowStatus("Secim silindi"); }
+        if ((Raylib.IsKeyPressed(KeyboardKey.Delete) || Raylib.IsKeyPressed(KeyboardKey.Backspace)) && selection.HasSelection && !selection.isRotateInputActive) { selection.DeleteSelection(canvas, history); ShowStatus("Secim silindi"); }
         if ((Raylib.IsKeyPressed(KeyboardKey.Escape) || Raylib.IsKeyPressed(KeyboardKey.Enter)) && selection.HasSelection) { selection.CancelOrCommit(canvas); ShowStatus("Secim kapatildi"); }
 
         Vector2 worldMousePos = Raylib.GetScreenToWorld2D(mouseScreenPos, camera);
@@ -756,8 +838,20 @@ class Program
                 if (Raylib.IsMouseButtonPressed(MouseButton.Left) || Raylib.IsMouseButtonPressed(MouseButton.Right)) history.SaveState(canvas);
                 if (Raylib.IsMouseButtonDown(MouseButton.Left))
                 {
-                    if (lastGridPos.HasValue) toolManager.DrawLine(canvas, lastGridPos.Value.x, lastGridPos.Value.y, gx, gy, palette.CurrentColor);
-                    else toolManager.ApplyTool(canvas, gx, gy, palette.CurrentColor);
+                    if (lastGridPos.HasValue)
+                    {
+                        if ((toolManager.ActiveTool == ToolType.Blur || toolManager.ActiveTool == ToolType.Jumble) && lastGridPos.Value == (gx, gy))
+                        {
+                        }
+                        else
+                        {
+                            toolManager.DrawLine(canvas, lastGridPos.Value.x, lastGridPos.Value.y, gx, gy, palette.CurrentColor);
+                        }
+                    }
+                    else
+                    {
+                        toolManager.ApplyTool(canvas, gx, gy, palette.CurrentColor);
+                    }
                     lastGridPos = (gx, gy);
                 }
                 else if (Raylib.IsMouseButtonDown(MouseButton.Right))
@@ -811,9 +905,16 @@ class Program
                         Raylib.DrawRectangle((int)canvas.Offset.X + px * canvas.PixelScale, (int)canvas.Offset.Y + py * canvas.PixelScale, canvas.PixelScale, canvas.PixelScale, previewColor);
             }
 
-            if (canvas.IsMouseInside(worldMousePos) && (toolManager.ActiveTool == ToolType.Pen || toolManager.ActiveTool == ToolType.Eraser))
+            bool isBrushTool = toolManager.ActiveTool == ToolType.Pen ||
+                               toolManager.ActiveTool == ToolType.Eraser ||
+                               toolManager.ActiveTool == ToolType.Blur ||
+                               toolManager.ActiveTool == ToolType.Jumble;
+
+            if (AppSettings.ShowBrushPreview && canvas.IsMouseInside(worldMousePos) && isBrushTool)
             {
-                int size = toolManager.ActiveTool == ToolType.Pen ? toolManager.PenSize : toolManager.EraserSize;
+                int size = toolManager.ActiveTool == ToolType.Eraser ? toolManager.EraserSize : toolManager.PenSize;
+                if (toolManager.ActiveTool == ToolType.Jumble && size < 2) size = 2;
+
                 int offset = size / 2;
                 int startX = gx - offset;
                 int startY = gy - offset;
@@ -835,9 +936,13 @@ class Program
                 }
 
                 float lineThickness = Math.Max(1f, 1.5f / camera.Zoom);
-                Color outlineCol = toolManager.ActiveTool == ToolType.Eraser 
-                    ? new Color((byte)255, (byte)100, (byte)100, alphaPulse) 
-                    : new Color((byte)255, (byte)255, (byte)255, alphaPulse);
+                Color outlineCol = toolManager.ActiveTool switch
+                {
+                    ToolType.Eraser => new Color((byte)255, (byte)100, (byte)100, alphaPulse),
+                    ToolType.Blur => new Color((byte)100, (byte)200, (byte)255, alphaPulse),
+                    ToolType.Jumble => new Color((byte)255, (byte)200, (byte)80, alphaPulse),
+                    _ => new Color((byte)255, (byte)255, (byte)255, alphaPulse)
+                };
 
                 Raylib.DrawRectangleLinesEx(brushPreviewRect, lineThickness * 1.6f, new Color((byte)0, (byte)0, (byte)0, (byte)200));
                 Raylib.DrawRectangleLinesEx(brushPreviewRect, lineThickness, outlineCol);
@@ -865,6 +970,8 @@ class Program
             {
                 ToolType.Shape => $"Sekil ({toolManager.ActiveShape})",
                 ToolType.SelectMove => $"Sec ({toolManager.ActiveSelectionMode})",
+                ToolType.Blur => "Bulanik (Blur)",
+                ToolType.Jumble => "Karistir (Jumble)",
                 _ => toolManager.ActiveTool.ToString()
             };
             Raylib.DrawText($"Arac: {toolDesc}", rightPanelX + 20, 466, 12, Color.Yellow);
@@ -896,6 +1003,12 @@ class Program
             Raylib.DrawText("+", (int)btnPlus.X + 6, (int)btnPlus.Y + 4, 14, Color.White);
 
             if (statusMessage != "Hazir") Raylib.DrawText(statusMessage, rightPanelX + 20, 550, 11, Color.Green);
+
+            if (isHoveringLeftEdge || isDraggingLeftPanel)
+                Raylib.DrawRectangle(LeftPanelWidth - 2, (int)WorkspaceTopY, 4, sh - (int)WorkspaceTopY, isDraggingLeftPanel ? Color.Yellow : Color.SkyBlue);
+            
+            if (isHoveringRightEdge || isDraggingRightPanel)
+                Raylib.DrawRectangle(sw - RightPanelWidth - 2, (int)WorkspaceTopY, 4, sh - (int)WorkspaceTopY, isDraggingRightPanel ? Color.Yellow : Color.SkyBlue);
         }
 
         tabBar.Draw(tabs, activeTabIndex, sw);
