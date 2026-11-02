@@ -1,3 +1,4 @@
+// === DOSYA: \IO\Exporter.cs ===
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -10,7 +11,9 @@ namespace PixelArtApp.IO;
 
 public static class Exporter
 {
-    // .LOOM PROJE KAYDETME DIYALOGU (Ctrl+S / Ctrl+Shift+S icin)
+    private const long MaxExportDimension = 16384;
+    private const long MaxExportBytes = 256L * 1024L * 1024L;
+
     public static string? SaveLoomDialog(string? currentFullPath, string defaultTitle)
     {
         string? selectedPath = null;
@@ -53,7 +56,6 @@ public static class Exporter
         return selectedPath;
     }
 
-    // .LOOM PROJE VEYA GORSEL ACMA DIYALOGU (Ctrl+O icin)
     public static string? OpenProjectOrImageDialog()
     {
         string? selectedPath = null;
@@ -62,7 +64,7 @@ public static class Exporter
             using OpenFileDialog ofd = new OpenFileDialog();
             ofd.Title = "Proje veya Gorsel Ac";
             ofd.Filter = "Loom Project (*.loom)|*.loom|Image Files (*.png;*.jpg;*.bmp)|*.png;*.jpg;*.bmp|Desteklenen Tum Dosyalar (*.loom;*.png;*.jpg;*.bmp)|*.loom;*.png;*.jpg;*.bmp";
-            ofd.FilterIndex = 1; // Varsayilan olarak Loom Project (*.loom) secili gelir
+            ofd.FilterIndex = 1;
             if (ofd.ShowDialog() == DialogResult.OK) selectedPath = ofd.FileName;
         });
 
@@ -72,7 +74,6 @@ public static class Exporter
         return selectedPath;
     }
 
-    // Aseprite [...] butonuna basildiginda PNG/JPG yolu almak icin (Mevcut Export ozelligi korundu)
     public static string? GetSavePathDialog(string currentFullPath)
     {
         string? selectedPath = null;
@@ -83,15 +84,15 @@ public static class Exporter
             sfd.Title = "Nereye Kaydedilsin? (PNG / Sprite Sheet Export)";
             sfd.Filter = "PNG Image (*.png)|*.png|JPEG Image (*.jpg)|*.jpg|Tum Dosyalar (*.*)|*.*";
             sfd.DefaultExt = "png";
-            
-            try 
+
+            try
             {
                 if (!string.IsNullOrEmpty(currentFullPath))
                 {
                     sfd.InitialDirectory = Path.GetDirectoryName(currentFullPath);
                     sfd.FileName = Path.GetFileName(currentFullPath);
                 }
-            } 
+            }
             catch { }
 
             if (sfd.ShowDialog() == DialogResult.OK)
@@ -107,73 +108,109 @@ public static class Exporter
         return selectedPath;
     }
 
-    // Export butonuna basildiginda belirtilen yola PNG/JPG kaydetmek icin (Mevcut Export ozelligi korundu)
     public static bool SaveExport(Canvas canvas, string path, int scale, bool exportAllFrames, bool sheetVertical)
     {
-        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (string.IsNullOrWhiteSpace(path) || canvas == null || scale <= 0 || scale > 64)
+            return false;
+
+        List<Frame> framesToExport = new();
+        if (exportAllFrames)
+        {
+            foreach (var f in canvas.Frames)
+                if (f.IsVisible) framesToExport.Add(f);
+        }
+        else if (canvas.Frames.Count > 0)
+        {
+            framesToExport.Add(canvas.Frames[canvas.ActiveFrameIndex]);
+        }
+
+        if (framesToExport.Count == 0) return false;
+
+        long baseW = canvas.Width;
+        long baseH = canvas.Height;
+        if (baseW <= 0 || baseH <= 0) return false;
+
+        long imgW = exportAllFrames ? (sheetVertical ? baseW : baseW * framesToExport.Count) : baseW;
+        long imgH = exportAllFrames ? (sheetVertical ? baseH * framesToExport.Count : baseH) : baseH;
+
+        long finalWLong = imgW * scale;
+        long finalHLong = imgH * scale;
+        long totalBytes = finalWLong * finalHLong * 4L;
+
+        if (finalWLong <= 0 || finalHLong <= 0 ||
+            finalWLong > MaxExportDimension || finalHLong > MaxExportDimension ||
+            totalBytes > MaxExportBytes)
+        {
+            return false;
+        }
+
+        int finalW = (int)finalWLong;
+        int finalH = (int)finalHLong;
+
+        bool isJpg = path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                     path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase);
+        Color bgColor = isJpg ? Color.White : Canvas.TransparentColor;
+
+        Image img = default;
+        bool imageCreated = false;
 
         try
         {
-            List<Frame> framesToExport = new();
-            if (exportAllFrames)
-            {
-                foreach (var f in canvas.Frames) if (f.IsVisible) framesToExport.Add(f);
-            }
-            else
-            {
-                framesToExport.Add(canvas.Frames[canvas.ActiveFrameIndex]);
-            }
-
-            if (framesToExport.Count == 0) return false;
-
-            int baseW = canvas.Width;
-            int baseH = canvas.Height;
-            int imgW = exportAllFrames ? (sheetVertical ? baseW : baseW * framesToExport.Count) : baseW;
-            int imgH = exportAllFrames ? (sheetVertical ? baseH * framesToExport.Count : baseH) : baseH;
-
-            int finalW = imgW * scale;
-            int finalH = imgH * scale;
-
-            Color bgColor = path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ? Color.White : Canvas.TransparentColor;
-            Image img = Raylib.GenImageColor(finalW, finalH, bgColor);
+            img = Raylib.GenImageColor(finalW, finalH, bgColor);
+            imageCreated = true;
 
             for (int i = 0; i < framesToExport.Count; i++)
             {
-                int offsetX = (exportAllFrames && !sheetVertical) ? i * baseW * scale : 0;
-                int offsetY = (exportAllFrames && sheetVertical) ? i * baseH * scale : 0;
+                int offsetX = (exportAllFrames && !sheetVertical) ? i * (int)baseW * scale : 0;
+                int offsetY = (exportAllFrames && sheetVertical) ? i * (int)baseH * scale : 0;
 
                 var frame = framesToExport[i];
 
-                for (int x = 0; x < baseW; x++)
+                for (int x = 0; x < (int)baseW; x++)
                 {
-                    for (int y = 0; y < baseH; y++)
+                    for (int y = 0; y < (int)baseH; y++)
                     {
-                        Color pixelColor = Canvas.TransparentColor;
+                        Color pixelColor = bgColor;
                         foreach (var l in frame.Layers)
                         {
-                            if (l.IsVisible && l.Pixels[x, y].A > 0)
-                                pixelColor = l.Pixels[x, y];
+                            if (!l.IsVisible || l.Opacity == 0) continue;
+                            Color c = l.Pixels[x, y];
+                            if (c.A > 0)
+                            {
+                                if (l.Opacity < 255)
+                                {
+                                    c.A = (byte)((c.A * l.Opacity) / 255);
+                                    if (c.A == 0) continue;
+                                }
+                                pixelColor = Canvas.BlendOver(pixelColor, c);
+                            }
                         }
 
                         if (pixelColor.A > 0)
                         {
-                            if (scale == 1) Raylib.ImageDrawPixel(ref img, offsetX + x, offsetY + y, pixelColor);
-                            else Raylib.ImageDrawRectangle(ref img, offsetX + x * scale, offsetY + y * scale, scale, scale, pixelColor);
+                            if (scale == 1)
+                                Raylib.ImageDrawPixel(ref img, offsetX + x, offsetY + y, pixelColor);
+                            else
+                                Raylib.ImageDrawRectangle(ref img, offsetX + x * scale, offsetY + y * scale, scale, scale, pixelColor);
                         }
                     }
                 }
             }
 
-            Raylib.ExportImage(img, path);
-            Raylib.UnloadImage(img);
-            return true;
+            return Raylib.ExportImage(img, path);
         }
         catch
         {
             return false;
         }
+        finally
+        {
+            if (imageCreated)
+            {
+                Raylib.UnloadImage(img);
+            }
+        }
     }
 
-    // Geriye donuk uyumluluk icin korundu
     public static string? OpenImageDialog() => OpenProjectOrImageDialog();
 }

@@ -1,3 +1,4 @@
+// === DOSYA: \UI\UnsavedChangesDialog.cs ===
 using System;
 using System.Numerics;
 using Raylib_cs;
@@ -22,12 +23,8 @@ public class UnsavedChangesDialog
     {
         projectTitle = title;
         resultCallback = onResult;
-
-        int sw = Raylib.GetScreenWidth();
-        int sh = Raylib.GetScreenHeight();
-        windowRect.X = (sw - windowRect.Width) / 2f;
-        windowRect.Y = (sh - windowRect.Height) / 2f;
-
+        windowRect.X = (Raylib.GetScreenWidth() - windowRect.Width) / 2f;
+        windowRect.Y = (Raylib.GetScreenHeight() - windowRect.Height) / 2f;
         IsOpen = true;
     }
 
@@ -37,56 +34,34 @@ public class UnsavedChangesDialog
         resultCallback = null;
     }
 
+    private void TriggerResult(UnsavedDialogResult res)
+    {
+        var cb = resultCallback;
+        Close();
+        cb?.Invoke(res);
+    }
+
     public bool Update(Vector2 mousePos)
     {
         if (!IsOpen) return false;
 
-        int sw = Raylib.GetScreenWidth();
-        int sh = Raylib.GetScreenHeight();
-        windowRect.X = (sw - windowRect.Width) / 2f;
-        windowRect.Y = (sh - windowRect.Height) / 2f;
-
-        Rectangle btnSave = new Rectangle(windowRect.X + 20, windowRect.Y + 120, 105, 34);
-        Rectangle btnDiscard = new Rectangle(windowRect.X + 135, windowRect.Y + 120, 165, 34);
-        Rectangle btnCancel = new Rectangle(windowRect.X + 310, windowRect.Y + 120, 100, 34);
+        windowRect.X = (Raylib.GetScreenWidth() - windowRect.Width) / 2f;
+        windowRect.Y = (Raylib.GetScreenHeight() - windowRect.Height) / 2f;
 
         if (Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
-            if (Raylib.CheckCollisionPointRec(mousePos, btnSave))
-            {
-                var cb = resultCallback;
-                Close();
-                cb?.Invoke(UnsavedDialogResult.Save);
-                return true;
-            }
-            if (Raylib.CheckCollisionPointRec(mousePos, btnDiscard))
-            {
-                var cb = resultCallback;
-                Close();
-                cb?.Invoke(UnsavedDialogResult.Discard);
-                return true;
-            }
-            if (Raylib.CheckCollisionPointRec(mousePos, btnCancel))
-            {
-                var cb = resultCallback;
-                Close();
-                cb?.Invoke(UnsavedDialogResult.Cancel);
-                return true;
-            }
+            if (Raylib.CheckCollisionPointRec(mousePos, new Rectangle(windowRect.X + 20, windowRect.Y + 120, 105, 34)))
+            { TriggerResult(UnsavedDialogResult.Save); return true; }
+
+            if (Raylib.CheckCollisionPointRec(mousePos, new Rectangle(windowRect.X + 135, windowRect.Y + 120, 165, 34)))
+            { TriggerResult(UnsavedDialogResult.Discard); return true; }
+
+            if (Raylib.CheckCollisionPointRec(mousePos, new Rectangle(windowRect.X + 310, windowRect.Y + 120, 100, 34)))
+            { TriggerResult(UnsavedDialogResult.Cancel); return true; }
         }
 
-        if (Raylib.IsKeyPressed(KeyboardKey.Escape))
-        {
-            var cb = resultCallback;
-            Close();
-            cb?.Invoke(UnsavedDialogResult.Cancel);
-        }
-        else if (Raylib.IsKeyPressed(KeyboardKey.Enter))
-        {
-            var cb = resultCallback;
-            Close();
-            cb?.Invoke(UnsavedDialogResult.Save);
-        }
+        if (Raylib.IsKeyPressed(KeyboardKey.Escape)) TriggerResult(UnsavedDialogResult.Cancel);
+        else if (Raylib.IsKeyPressed(KeyboardKey.Enter)) TriggerResult(UnsavedDialogResult.Save);
 
         return true;
     }
@@ -95,11 +70,8 @@ public class UnsavedChangesDialog
     {
         if (!IsOpen) return;
 
-        int sw = Raylib.GetScreenWidth();
-        int sh = Raylib.GetScreenHeight();
         Vector2 mousePos = Raylib.GetMousePosition();
-
-        Raylib.DrawRectangle(0, 0, sw, sh, new Color(0, 0, 0, 160));
+        Raylib.DrawRectangle(0, 0, Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), new Color(0, 0, 0, 160));
         Raylib.DrawRectangleRec(windowRect, new Color(32, 32, 36, 255));
         Raylib.DrawRectangleLinesEx(windowRect, 1, Color.SkyBlue);
 
@@ -109,21 +81,8 @@ public class UnsavedChangesDialog
         Raylib.DrawText($"'{projectTitle}' projesinde kaydedilmemis", (int)windowRect.X + 20, (int)windowRect.Y + 52, 14, Color.RayWhite);
         Raylib.DrawText("degisiklikler var. Kapatmadan once kaydedilsin mi?", (int)windowRect.X + 20, (int)windowRect.Y + 74, 14, Color.LightGray);
 
-        DrawBtn(new Rectangle(windowRect.X + 20, windowRect.Y + 120, 105, 34), "Kaydet", new Color(45, 115, 70, 255), mousePos);
-        DrawBtn(new Rectangle(windowRect.X + 135, windowRect.Y + 120, 165, 34), "Kaydetmeden Kapat", new Color(135, 45, 45, 255), mousePos);
-        DrawBtn(new Rectangle(windowRect.X + 310, windowRect.Y + 120, 100, 34), "Iptal", new Color(65, 65, 75, 255), mousePos);
-    }
-
-    private void DrawBtn(Rectangle rect, string text, Color baseCol, Vector2 mousePos)
-    {
-        bool hover = Raylib.CheckCollisionPointRec(mousePos, rect);
-        Color col = hover
-            ? new Color((byte)Math.Min(255, baseCol.R + 25), (byte)Math.Min(255, baseCol.G + 25), (byte)Math.Min(255, baseCol.B + 25), (byte)255)
-            : baseCol;
-
-        Raylib.DrawRectangleRec(rect, col);
-        Raylib.DrawRectangleLinesEx(rect, 1, Color.LightGray);
-        int tw = Raylib.MeasureText(text, 13);
-        Raylib.DrawText(text, (int)(rect.X + (rect.Width - tw) / 2), (int)rect.Y + 10, 13, Color.White);
+        UIWidgets.DrawColorButton(new Rectangle(windowRect.X + 20, windowRect.Y + 120, 105, 34), "Kaydet", new Color(45, 115, 70, 255), mousePos, 13, Color.LightGray);
+        UIWidgets.DrawColorButton(new Rectangle(windowRect.X + 135, windowRect.Y + 120, 165, 34), "Kaydetmeden Kapat", new Color(135, 45, 45, 255), mousePos, 13, Color.LightGray);
+        UIWidgets.DrawColorButton(new Rectangle(windowRect.X + 310, windowRect.Y + 120, 100, 34), "Iptal", new Color(65, 65, 75, 255), mousePos, 13, Color.LightGray);
     }
 }

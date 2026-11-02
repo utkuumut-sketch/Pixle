@@ -1,3 +1,4 @@
+// === DOSYA: \UI\AnimationPanel.cs ===
 using System;
 using System.Numerics;
 using Raylib_cs;
@@ -200,15 +201,24 @@ public class AnimationPanel
 
                         if (Raylib.CheckCollisionPointRec(mousePos, eyeRect))
                         {
+                            history.SaveState(canvas);
                             canvas.Frames[i].IsVisible = !canvas.Frames[i].IsVisible;
                             onFrameChanged();
                         }
                         else if (Raylib.CheckCollisionPointRec(mousePos, delBtn) && canvas.Frames.Count > 1)
                         {
+                            int prevActive = canvas.ActiveFrameIndex;
                             history.SaveState(canvas);
                             canvas.Frames[i].Dispose();
                             canvas.Frames.RemoveAt(i);
-                            if (canvas.ActiveFrameIndex >= canvas.Frames.Count) canvas.ActiveFrameIndex = canvas.Frames.Count - 1;
+
+                            if (prevActive > i)
+                                canvas.ActiveFrameIndex = prevActive - 1;
+                            else if (prevActive >= canvas.Frames.Count)
+                                canvas.ActiveFrameIndex = canvas.Frames.Count - 1;
+                            else
+                                canvas.ActiveFrameIndex = prevActive;
+
                             onFrameChanged();
                             return true;
                         }

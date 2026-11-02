@@ -1,3 +1,4 @@
+// === DOSYA: \Core\Frame.cs ===
 using System;
 using System.Collections.Generic;
 using Raylib_cs;
@@ -7,22 +8,31 @@ namespace PixelArtApp.Core;
 public class Frame : IDisposable
 {
     public List<Layer> Layers { get; set; } = new();
-    public int ActiveLayerIndex { get; set; } = 0;
+    private int activeLayerIndex = 0;
+
+    public int ActiveLayerIndex
+    {
+        get => Layers.Count == 0 ? 0 : Math.Clamp(activeLayerIndex, 0, Layers.Count - 1);
+        set => activeLayerIndex = Layers.Count == 0 ? 0 : Math.Clamp(value, 0, Layers.Count - 1);
+    }
+
     public bool IsVisible { get; set; } = true;
 
-    // PERFORMANS: Animasyon Karesi Birleşik Önizleme Önbelleği
     public bool IsThumbnailDirty { get; set; } = true;
     private Texture2D thumbTexture;
     private bool hasThumb = false;
     private Color[]? flatThumb;
 
-    
-
     public Texture2D GetOrUpdateThumbnail(int w, int h)
     {
-        foreach (var l in Layers)
+        for (int i = 0; i < Layers.Count; i++)
         {
-            if (l.IsDirty) IsThumbnailDirty = true;
+            if (Layers[i].IsDirty || Layers[i].VisibilityChanged)
+            {
+                IsThumbnailDirty = true;
+                Layers[i].IsDirty = false;
+                Layers[i].VisibilityChanged = false;
+            }
         }
 
         if (!hasThumb)
@@ -39,19 +49,33 @@ public class Frame : IDisposable
         if (IsThumbnailDirty && flatThumb != null)
         {
             Array.Clear(flatThumb, 0, flatThumb.Length);
+
             for (int l = 0; l < Layers.Count; l++)
             {
-                if (!Layers[l].IsVisible) continue;
+                if (!Layers[l].IsVisible || Layers[l].Opacity == 0) continue;
                 var p = Layers[l].Pixels;
+                byte layerOpacity = Layers[l].Opacity;
+
                 for (int y = 0; y < h; y++)
                 {
                     int row = y * w;
                     for (int x = 0; x < w; x++)
                     {
-                        if (p[x, y].A > 0) flatThumb[row + x] = p[x, y];
+                        Color topColor = p[x, y];
+                        if (topColor.A == 0) continue;
+
+                        if (layerOpacity < 255)
+                        {
+                            topColor.A = (byte)((topColor.A * layerOpacity) / 255);
+                            if (topColor.A == 0) continue;
+                        }
+
+                        int idx = row + x;
+                        flatThumb[idx] = Canvas.BlendOver(flatThumb[idx], topColor);
                     }
                 }
             }
+
             Raylib.UpdateTexture(thumbTexture, flatThumb);
             IsThumbnailDirty = false;
         }
@@ -61,9 +85,11 @@ public class Frame : IDisposable
 
     public Frame Clone()
     {
-        var clone = new Frame();
-        clone.ActiveLayerIndex = ActiveLayerIndex;
-        clone.IsVisible = IsVisible;
+        var clone = new Frame
+        {
+            ActiveLayerIndex = this.ActiveLayerIndex,
+            IsVisible = this.IsVisible
+        };
         foreach (var l in Layers)
         {
             clone.Layers.Add(l.Clone());

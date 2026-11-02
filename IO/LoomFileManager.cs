@@ -1,3 +1,4 @@
+// === DOSYA: \IO\LoomFileManager.cs ===
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -14,15 +15,19 @@ public static class LoomFileManager
 {
     public const int CurrentFormatVersion = 1;
 
+    private const int MaxCanvasDimension = 2048;
+    private const int MaxFrames = 512;
+    private const int MaxLayersPerFrame = 64;
+    private const int MaxLayerNameLength = 64;
+    private const long MaxJsonBytes = 4L * 1024L * 1024L; // 4 MB
+    private const long MaxTotalProjectPixelBytes = 256L * 1024L * 1024L; // 256 MB
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
         PropertyNameCaseInsensitive = true
     };
 
-    /// <summary>
-    /// Verilen ProjectTab ve Palette verilerini .loom (ZIP + JSON + Binary) formatinda kaydeder.
-    /// </summary>
     public static bool SaveProject(ProjectTab tab, Palette palette, string filePath, out string errorMessage)
     {
         errorMessage = string.Empty;
@@ -33,23 +38,18 @@ public static class LoomFileManager
             return false;
         }
 
-        // Uzanti .loom degilse otomatik tamamla
         if (!filePath.EndsWith(".loom", StringComparison.OrdinalIgnoreCase))
         {
             filePath += ".loom";
         }
 
-        // Atomik kayit icin gecici dosya yolu (Mevcut dosyayi bozmamak icin)
         string tempPath = filePath + ".tmp";
 
         try
         {
-            // Eger gecici bir seçili alan (floating selection) varsa kaydetmeden once tuvale yerlestir
             tab.Selection.CancelOrCommit(tab.Canvas);
-
             Canvas canvas = tab.Canvas;
 
-            // 1. JSON Metaveri modelini hazirla
             LoomProjectData projectData = new()
             {
                 FormatVersion = CurrentFormatVersion,
@@ -60,7 +60,6 @@ public static class LoomFileManager
                 ShowGrid = canvas.ShowGrid
             };
 
-            // Palet renklerini HEX (#RRGGBBAA) olarak kaydet
             foreach (var col in palette.GetColors())
             {
                 projectData.PaletteHex.Add($"{col.R:X2}{col.G:X2}{col.B:X2}{col.A:X2}");
@@ -69,13 +68,12 @@ public static class LoomFileManager
             if (File.Exists(tempPath))
                 File.Delete(tempPath);
 
-            // 2. ZIP arsivini olustur ve icine hem binary pikselleri hem JSON metaveriyi yaz
             using (FileStream fs = new(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             using (ZipArchive archive = new(fs, ZipArchiveMode.Create))
             {
                 int w = canvas.Width;
                 int h = canvas.Height;
-                byte[] pixelBuffer = new byte[w * h * 4]; // Her piksel 4 byte (R, G, B, A)
+                byte[] pixelBuffer = new byte[w * h * 4];
 
                 for (int fIdx = 0; fIdx < canvas.Frames.Count; fIdx++)
                 {
@@ -95,11 +93,10 @@ public static class LoomFileManager
                         {
                             Name = layer.Name,
                             IsVisible = layer.IsVisible,
-                            Opacity = 255,
+                            Opacity = layer.Opacity,
                             DataFile = binEntryName
                         });
 
-                        // 2 Boyutlu Color[,] dizisini 1 boyutlu byte[] dizisine cevir
                         int offset = 0;
                         for (int y = 0; y < h; y++)
                         {
@@ -113,7 +110,6 @@ public static class LoomFileManager
                             }
                         }
 
-                        // Binary piksel dosyasini ZIP icine sikistirarak yaz
                         ZipArchiveEntry binEntry = archive.CreateEntry(binEntryName, CompressionLevel.Optimal);
                         using (Stream entryStream = binEntry.Open())
                         {
@@ -124,7 +120,6 @@ public static class LoomFileManager
                     projectData.Frames.Add(frameData);
                 }
 
-                // 3. project.json dosyasini ZIP icine yaz
                 ZipArchiveEntry jsonEntry = archive.CreateEntry("project.json", CompressionLevel.Optimal);
                 using (Stream jsonStream = jsonEntry.Open())
                 {
@@ -132,13 +127,11 @@ public static class LoomFileManager
                 }
             }
 
-            // 4. Yazma %100 basarili olduysa gecici dosyayi asil dosyanin uzerine tasi
             File.Move(tempPath, filePath, overwrite: true);
 
-            // Sekme bilgilerini guncelle
             tab.FilePath = filePath;
             tab.Title = Path.GetFileNameWithoutExtension(filePath);
-            tab.IsDirty = false;
+            tab.MarkSaved();
 
             return true;
         }
@@ -150,10 +143,6 @@ public static class LoomFileManager
         }
     }
 
-    /// <summary>
-    /// .loom dosyasini okur, dogrular ve basarili olursa yeni bir ProjectTab dondurur.
-    /// Basarisiz olursa null dondurur ve mevcut acik projelere hicbir zarar vermez.
-    /// </summary>
     public static ProjectTab? LoadProject(string filePath, out List<Color>? loadedPalette, out string errorMessage)
     {
         loadedPalette = null;
@@ -165,12 +154,22 @@ public static class LoomFileManager
             return null;
         }
 
+        List<Frame> rebuiltFrames = new();
+        Frame? currentFrame = null;
+
+        void CleanupAllocatedFrames()
+        {
+            currentFrame?.Dispose();
+            currentFrame = null;
+            foreach (var rf in rebuiltFrames) rf.Dispose();
+            rebuiltFrames.Clear();
+        }
+
         try
         {
             using FileStream fs = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             using ZipArchive archive = new(fs, ZipArchiveMode.Read);
 
-            // 1. project.json kontrolu ve okunmasi
             ZipArchiveEntry? jsonEntry = archive.GetEntry("project.json");
             if (jsonEntry == null)
             {
@@ -178,10 +177,31 @@ public static class LoomFileManager
                 return null;
             }
 
+            if (jsonEntry.Length <= 0 || jsonEntry.Length > MaxJsonBytes)
+            {
+                errorMessage = "Bozuk .loom dosyasi: 'project.json' boyutu gecersiz veya cok buyuk.";
+                return null;
+            }
+
             LoomProjectData? projectData;
             using (Stream jsonStream = jsonEntry.Open())
+            using (MemoryStream ms = new())
             {
-                projectData = JsonSerializer.Deserialize<LoomProjectData>(jsonStream, JsonOptions);
+                byte[] chunk = new byte[8192];
+                long totalJsonRead = 0;
+                int r;
+                while ((r = jsonStream.Read(chunk, 0, chunk.Length)) > 0)
+                {
+                    totalJsonRead += r;
+                    if (totalJsonRead > MaxJsonBytes)
+                    {
+                        errorMessage = "Bozuk .loom dosyasi: JSON icerigi siniri asti.";
+                        return null;
+                    }
+                    ms.Write(chunk, 0, r);
+                }
+                ms.Position = 0;
+                projectData = JsonSerializer.Deserialize<LoomProjectData>(ms, JsonOptions);
             }
 
             if (projectData == null)
@@ -190,62 +210,90 @@ public static class LoomFileManager
                 return null;
             }
 
-            // 2. Surum ve boyut dogrulamasi
             if (projectData.FormatVersion <= 0 || projectData.FormatVersion > CurrentFormatVersion)
             {
                 errorMessage = $"Desteklenmeyen .loom surumu: v{projectData.FormatVersion}";
                 return null;
             }
 
-            if (projectData.Width <= 0 || projectData.Width > 2048 || projectData.Height <= 0 || projectData.Height > 2048)
+            if (projectData.Width <= 0 || projectData.Width > MaxCanvasDimension ||
+                projectData.Height <= 0 || projectData.Height > MaxCanvasDimension)
             {
                 errorMessage = $"Gecersiz tuval boyutu: {projectData.Width}x{projectData.Height}";
                 return null;
             }
 
-            if (projectData.Frames == null || projectData.Frames.Count == 0)
+            if (projectData.Frames == null || projectData.Frames.Count == 0 || projectData.Frames.Count > MaxFrames)
             {
-                errorMessage = "Bozuk .loom dosyasi: Hic animasyon karesi (frame) yok.";
+                errorMessage = $"Gecersiz animasyon karesi sayisi: {projectData.Frames?.Count ?? 0} (Maks: {MaxFrames}).";
                 return null;
             }
 
             int w = projectData.Width;
             int h = projectData.Height;
             int expectedByteCount = w * h * 4;
+            long totalAccumulatedBytes = 0;
             byte[] pixelBuffer = new byte[expectedByteCount];
-
-            // 3. Once tum kare ve katmanlari bellekte olusturup dogrula (Hata cikarsa yarim sekme kalmasin)
-            List<Frame> rebuiltFrames = new();
 
             for (int fIdx = 0; fIdx < projectData.Frames.Count; fIdx++)
             {
-                LoomFrameData fData = projectData.Frames[fIdx];
-                if (fData.Layers == null || fData.Layers.Count == 0)
+                LoomFrameData? fData = projectData.Frames[fIdx];
+                if (fData == null || fData.Layers == null || fData.Layers.Count == 0 || fData.Layers.Count > MaxLayersPerFrame)
                 {
-                    foreach (var rf in rebuiltFrames) rf.Dispose();
-                    errorMessage = $"Bozuk .loom dosyasi: Kare {fIdx + 1} icinde katman yok.";
+                    CleanupAllocatedFrames();
+                    errorMessage = $"Gecersiz katman sayisi (Kare {fIdx + 1}).";
                     return null;
                 }
 
-                Frame newFrame = new()
+                if (fData.ActiveLayerIndex < 0 || fData.ActiveLayerIndex >= fData.Layers.Count)
+                {
+                    CleanupAllocatedFrames();
+                    errorMessage = $"Kare {fIdx + 1} icinde gecersiz aktif katman indeksi.";
+                    return null;
+                }
+
+                currentFrame = new Frame
                 {
                     IsVisible = fData.IsVisible
                 };
 
                 for (int lIdx = 0; lIdx < fData.Layers.Count; lIdx++)
                 {
-                    LoomLayerData lData = fData.Layers[lIdx];
-                    ZipArchiveEntry? binEntry = archive.GetEntry(lData.DataFile);
+                    LoomLayerData? lData = fData.Layers[lIdx];
 
+                    if (lData == null ||
+                        string.IsNullOrWhiteSpace(lData.DataFile) ||
+                        lData.DataFile.Contains("..") ||
+                        Path.IsPathRooted(lData.DataFile))
+                    {
+                        CleanupAllocatedFrames();
+                        errorMessage = $"Kare {fIdx + 1}, Katman {lIdx + 1} bilgisi gecersiz.";
+                        return null;
+                    }
+
+                    totalAccumulatedBytes += expectedByteCount;
+                    if (totalAccumulatedBytes > MaxTotalProjectPixelBytes)
+                    {
+                        CleanupAllocatedFrames();
+                        errorMessage = "Proje bellek sinirini (256 MB) asiyor.";
+                        return null;
+                    }
+
+                    ZipArchiveEntry? binEntry = archive.GetEntry(lData.DataFile);
                     if (binEntry == null)
                     {
-                        foreach (var rf in rebuiltFrames) rf.Dispose();
-                        newFrame.Dispose();
+                        CleanupAllocatedFrames();
                         errorMessage = $"Eksik piksel verisi: {lData.DataFile}";
                         return null;
                     }
 
-                    // Binary akistan tam olarak expectedByteCount kadar oku
+                    if (binEntry.Length != expectedByteCount)
+                    {
+                        CleanupAllocatedFrames();
+                        errorMessage = $"Bozuk piksel verisi boyutu: {lData.DataFile}";
+                        return null;
+                    }
+
                     using (Stream binStream = binEntry.Open())
                     {
                         int totalRead = 0;
@@ -256,19 +304,21 @@ public static class LoomFileManager
                             totalRead += read;
                         }
 
-                        if (totalRead != expectedByteCount)
+                        if (totalRead != expectedByteCount || binStream.ReadByte() != -1)
                         {
-                            foreach (var rf in rebuiltFrames) rf.Dispose();
-                            newFrame.Dispose();
-                            errorMessage = $"Bozuk piksel verisi boyutu: {lData.DataFile}";
+                            CleanupAllocatedFrames();
+                            errorMessage = $"Bozuk binary piksel akisi: {lData.DataFile}";
                             return null;
                         }
                     }
 
-                    string layerName = string.IsNullOrWhiteSpace(lData.Name) ? $"Katman {lIdx + 1}" : lData.Name;
-                    Layer newLayer = new(layerName, w, h)
+                    string rawName = string.IsNullOrWhiteSpace(lData.Name) ? $"Katman {lIdx + 1}" : lData.Name.Trim();
+                    if (rawName.Length > MaxLayerNameLength) rawName = rawName[..MaxLayerNameLength];
+
+                    Layer newLayer = new(rawName, w, h)
                     {
-                        IsVisible = lData.IsVisible
+                        IsVisible = lData.IsVisible,
+                        Opacity = lData.Opacity
                     };
 
                     int offset = 0;
@@ -280,58 +330,54 @@ public static class LoomFileManager
                             byte g = pixelBuffer[offset++];
                             byte b = pixelBuffer[offset++];
                             byte a = pixelBuffer[offset++];
-                            newLayer.Pixels[x, y] = new Color(r, g, b, a);
+                            newLayer.SetPixelDirect(x, y, new Color(r, g, b, a));
                         }
                     }
                     newLayer.IsDirty = true;
-                    newFrame.Layers.Add(newLayer);
+                    currentFrame.Layers.Add(newLayer);
                 }
 
-                newFrame.ActiveLayerIndex = Math.Clamp(fData.ActiveLayerIndex, 0, newFrame.Layers.Count - 1);
-                newFrame.IsThumbnailDirty = true;
-                rebuiltFrames.Add(newFrame);
+                currentFrame.ActiveLayerIndex = fData.ActiveLayerIndex;
+                currentFrame.IsThumbnailDirty = true;
+                rebuiltFrames.Add(currentFrame);
+                currentFrame = null;
             }
 
-            // 4. Palet renklerini coz (Varsa)
             if (projectData.PaletteHex != null && projectData.PaletteHex.Count > 0)
             {
                 List<Color> cols = new();
-                foreach (string hex in projectData.PaletteHex)
+                int maxPalette = Math.Min(projectData.PaletteHex.Count, 256);
+                for (int i = 0; i < maxPalette; i++)
                 {
-                    if (TryParseHexColor(hex, out Color parsedCol))
+                    if (TryParseHexColor(projectData.PaletteHex[i], out Color parsedCol))
                         cols.Add(parsedCol);
                 }
                 if (cols.Count > 0)
                     loadedPalette = cols;
             }
 
-            // 5. Yeni ProjectTab nesnesini olustur ve dogrulanmis kareleri icine yerlestir
             string title = Path.GetFileNameWithoutExtension(filePath);
             ProjectTab newTab = new(title, w, h, Canvas.TransparentColor, projectData.ShowGrid)
             {
                 FilePath = filePath,
-                Fps = Math.Clamp(projectData.Fps, 1f, 60f),
-                IsDirty = false
+                Fps = float.IsFinite(projectData.Fps) ? Math.Clamp(projectData.Fps, 1f, 60f) : 8f
             };
 
-            // Varsayilan olusan ilk bos kareyi temizle ve dosyadan gelen kareleri ekle
-            foreach (var defaultFrame in newTab.Canvas.Frames)
-                defaultFrame.Dispose();
-            newTab.Canvas.Frames.Clear();
-
-            newTab.Canvas.Frames.AddRange(rebuiltFrames);
-            newTab.Canvas.ActiveFrameIndex = Math.Clamp(projectData.ActiveFrameIndex, 0, newTab.Canvas.Frames.Count - 1);
-            newTab.IsDirty = false;
+            newTab.Canvas.ReplaceFrames(rebuiltFrames, projectData.ActiveFrameIndex);
+            rebuiltFrames.Clear();
+            newTab.MarkSaved();
 
             return newTab;
         }
         catch (InvalidDataException)
         {
+            CleanupAllocatedFrames();
             errorMessage = "Secilen dosya gecerli bir .loom (arsiv) dosyasi degil veya bozulmus.";
             return null;
         }
         catch (Exception ex)
         {
+            CleanupAllocatedFrames();
             errorMessage = $"Dosya acilirken hata olustu: {ex.Message}";
             return null;
         }

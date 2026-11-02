@@ -1,3 +1,4 @@
+// === DOSYA: \Core\Layer.cs ===
 using System;
 using Raylib_cs;
 
@@ -5,26 +6,73 @@ namespace PixelArtApp.Core;
 
 public class Layer : IDisposable
 {
+    private sealed class PixelBuffer
+    {
+        public readonly Color[,] Data;
+        public int RefCount;
+
+        public PixelBuffer(int width, int height)
+        {
+            Data = new Color[width, height];
+            RefCount = 1;
+        }
+
+        public PixelBuffer(Color[,] copiedData)
+        {
+            Data = copiedData;
+            RefCount = 1;
+        }
+    }
+
+    public readonly struct ReadOnlyPixelGrid
+    {
+        private readonly Color[,] data;
+        internal ReadOnlyPixelGrid(Color[,] data) => this.data = data;
+        public Color this[int x, int y] => data[x, y];
+    }
+
     public string Name { get; set; }
     public int Width { get; }
     public int Height { get; }
 
-    // CoW GUVENLIGI: Dizi disariya dogrudan acilmaz, yazma islemleri metotlarla kontrol edilir.
-    private Color[,] pixels;
-    private bool isPixelsShared = false;
+    private PixelBuffer buffer;
+    private bool isDisposed = false;
 
-    // Sadece okuma (Export, Thumbnail, vb.) yapan yerler icin salt-okunur erisim
-    // Layer.cs icinde:
-public Color[,] Pixels => pixels; // Disaridan new Color[,] atanmasini engeller, EnsureUniquePixels() olmadanSetPixel kullanilmasini saglar.
+    public ReadOnlyPixelGrid Pixels => new ReadOnlyPixelGrid(buffer.Data);
 
     private bool isVisible = true;
-    public bool IsVisible 
-    { 
-        get => isVisible; 
-        set { if (isVisible != value) { isVisible = value; IsDirty = true; } } 
+    public bool IsVisible
+    {
+        get => isVisible;
+        set
+        {
+            if (isVisible != value)
+            {
+                isVisible = value;
+                IsDirty = true;
+                VisibilityChanged = true;
+            }
+        }
+    }
+
+    private byte opacity = 255;
+    public byte Opacity
+    {
+        get => opacity;
+        set
+        {
+            if (opacity != value)
+            {
+                opacity = value;
+                IsDirty = true;
+                VisibilityChanged = true;
+            }
+        }
     }
 
     public bool IsDirty { get; set; } = true;
+    internal bool VisibilityChanged { get; set; } = true;
+
     private Texture2D cachedTexture;
     private bool hasTexture = false;
     private Color[]? flatBuffer;
@@ -34,34 +82,42 @@ public Color[,] Pixels => pixels; // Disaridan new Color[,] atanmasini engeller,
         Name = name;
         Width = width;
         Height = height;
-        pixels = new Color[width, height];
+        buffer = new PixelBuffer(width, height);
     }
 
-    // RAM OPTIMIZASYONU: Clone() sirasinda gereksiz Color[,] tahsisatini onleyen ozel kurucu
-    private Layer(string name, Color[,] sharedPixels, bool visible)
+    private Layer(string name, PixelBuffer sharedBuffer, bool visible, byte layerOpacity)
     {
         Name = name;
-        Width = sharedPixels.GetLength(0);
-        Height = sharedPixels.GetLength(1);
-        pixels = sharedPixels;
+        Width = sharedBuffer.Data.GetLength(0);
+        Height = sharedBuffer.Data.GetLength(1);
+        buffer = sharedBuffer;
+        buffer.RefCount++;
         isVisible = visible;
-        isPixelsShared = true;
+        opacity = layerOpacity;
         IsDirty = true;
+        VisibilityChanged = true;
     }
 
-    public Color GetPixel(int x, int y) => pixels[x, y];
+    public Color GetPixel(int x, int y)
+    {
+        if (x < 0 || x >= Width || y < 0 || y >= Height) return Canvas.TransparentColor;
+        return buffer.Data[x, y];
+    }
 
     public void SetPixel(int x, int y, Color color)
     {
+        if (x < 0 || x >= Width || y < 0 || y >= Height) return;
         EnsureUniquePixels();
-        pixels[x, y] = color;
+        buffer.Data[x, y] = color;
         IsDirty = true;
     }
 
-    // Dosyadan ilk yukleme gibi CoW paylasimi olmayan toplu yazimlar icin
     public void SetPixelDirect(int x, int y, Color color)
     {
-        pixels[x, y] = color;
+        if (x < 0 || x >= Width || y < 0 || y >= Height) return;
+        EnsureUniquePixels();
+        buffer.Data[x, y] = color;
+        IsDirty = true;
     }
 
     public void Fill(Color color)
@@ -69,18 +125,18 @@ public Color[,] Pixels => pixels; // Disaridan new Color[,] atanmasini engeller,
         EnsureUniquePixels();
         for (int x = 0; x < Width; x++)
             for (int y = 0; y < Height; y++)
-                pixels[x, y] = color;
+                buffer.Data[x, y] = color;
         IsDirty = true;
     }
 
     public void EnsureUniquePixels()
     {
-        if (isPixelsShared)
+        if (buffer.RefCount > 1)
         {
             Color[,] newPixels = new Color[Width, Height];
-            Array.Copy(pixels, newPixels, pixels.Length);
-            pixels = newPixels;
-            isPixelsShared = false;
+            Array.Copy(buffer.Data, newPixels, buffer.Data.Length);
+            buffer.RefCount--;
+            buffer = new PixelBuffer(newPixels);
         }
     }
 
@@ -98,15 +154,15 @@ public Color[,] Pixels => pixels; // Disaridan new Color[,] atanmasini engeller,
 
         if (IsDirty)
         {
-            if (flatBuffer == null)
-                flatBuffer = new Color[Width * Height];
+            flatBuffer ??= new Color[Width * Height];
 
+            var data = buffer.Data;
             for (int y = 0; y < Height; y++)
             {
                 int rowOffset = y * Width;
                 for (int x = 0; x < Width; x++)
                 {
-                    flatBuffer[rowOffset + x] = pixels[x, y];
+                    flatBuffer[rowOffset + x] = data[x, y];
                 }
             }
             Raylib.UpdateTexture(cachedTexture, flatBuffer);
@@ -118,17 +174,23 @@ public Color[,] Pixels => pixels; // Disaridan new Color[,] atanmasini engeller,
 
     public Layer Clone()
     {
-        this.isPixelsShared = true;
-        return new Layer(Name, this.pixels, this.isVisible);
+        return new Layer(Name, this.buffer, this.isVisible, this.opacity);
     }
 
     public void Dispose()
     {
+        if (!isDisposed)
+        {
+            if (buffer.RefCount > 1)
+                buffer.RefCount--;
+            isDisposed = true;
+        }
+
         if (hasTexture)
         {
             Raylib.UnloadTexture(cachedTexture);
             hasTexture = false;
         }
-        flatBuffer = null; 
+        flatBuffer = null;
     }
 }

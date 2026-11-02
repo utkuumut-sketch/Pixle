@@ -1,3 +1,4 @@
+// === DOSYA: \Core\Canvas.cs ===
 using System;
 using System.Collections.Generic;
 using System.Numerics;
@@ -15,13 +16,28 @@ public class Canvas : IDisposable
     public static readonly Color TransparentColor = new Color(0, 0, 0, 0);
 
     public List<Frame> Frames { get; private set; } = new();
-    public int ActiveFrameIndex { get; set; } = 0;
+    private int activeFrameIndex = 0;
+
+    public int ActiveFrameIndex
+    {
+        get => Frames.Count == 0 ? 0 : Math.Clamp(activeFrameIndex, 0, Frames.Count - 1);
+        set => activeFrameIndex = Frames.Count == 0 ? 0 : Math.Clamp(value, 0, Frames.Count - 1);
+    }
 
     public List<Layer> Layers => Frames[ActiveFrameIndex].Layers;
-    public int ActiveLayerIndex 
-    { 
-        get => Frames[ActiveFrameIndex].ActiveLayerIndex; 
-        set => Frames[ActiveFrameIndex].ActiveLayerIndex = value; 
+
+    public int ActiveLayerIndex
+    {
+        get
+        {
+            var layers = Layers;
+            return layers.Count == 0 ? 0 : Math.Clamp(Frames[ActiveFrameIndex].ActiveLayerIndex, 0, layers.Count - 1);
+        }
+        set
+        {
+            var layers = Layers;
+            Frames[ActiveFrameIndex].ActiveLayerIndex = layers.Count == 0 ? 0 : Math.Clamp(value, 0, layers.Count - 1);
+        }
     }
 
     private Texture2D checkerTexture;
@@ -34,9 +50,28 @@ public class Canvas : IDisposable
         Height = height;
         PixelScale = scale;
         Offset = offset;
-        
+
         Frames.Add(new Frame());
         Frames[0].Layers.Add(new Layer("Katman 1", width, height));
+    }
+
+    public static Color BlendOver(Color bottom, Color top)
+    {
+        if (top.A == 0) return bottom;
+        if (top.A == 255 || bottom.A == 0) return top;
+
+        float srcA = top.A / 255f;
+        float dstA = bottom.A / 255f;
+        float outA = srcA + dstA * (1f - srcA);
+
+        if (outA <= 0.0001f) return TransparentColor;
+
+        byte r = (byte)Math.Clamp((top.R * srcA + bottom.R * dstA * (1f - srcA)) / outA, 0f, 255f);
+        byte g = (byte)Math.Clamp((top.G * srcA + bottom.G * dstA * (1f - srcA)) / outA, 0f, 255f);
+        byte b = (byte)Math.Clamp((top.B * srcA + bottom.B * dstA * (1f - srcA)) / outA, 0f, 255f);
+        byte a = (byte)Math.Clamp(outA * 255f, 0f, 255f);
+
+        return new Color(r, g, b, a);
     }
 
     private void InitCheckerTexture()
@@ -80,8 +115,18 @@ public class Canvas : IDisposable
     public void AddLayer()
     {
         Layers.Add(new Layer($"Katman {Layers.Count + 1}", Width, Height));
-        ActiveLayerIndex = Layers.Count - 1; 
+        ActiveLayerIndex = Layers.Count - 1;
         Frames[ActiveFrameIndex].IsThumbnailDirty = true;
+    }
+
+    public void SetLayerVisibility(int layerIndex, bool isVisible)
+    {
+        if (layerIndex < 0 || layerIndex >= Layers.Count) return;
+        if (Layers[layerIndex].IsVisible != isVisible)
+        {
+            Layers[layerIndex].IsVisible = isVisible;
+            Frames[ActiveFrameIndex].IsThumbnailDirty = true;
+        }
     }
 
     public void AddFrame()
@@ -96,7 +141,7 @@ public class Canvas : IDisposable
         ActiveFrameIndex = Frames.Count - 1;
     }
 
-    public void ReplaceFrames(List<Frame> newFrames, int activeFrameIndex)
+    public void ReplaceFrames(List<Frame> newFrames, int activeFrameIdx)
     {
         if (newFrames == null || newFrames.Count == 0) return;
 
@@ -104,18 +149,18 @@ public class Canvas : IDisposable
         Frames.Clear();
 
         Frames.AddRange(newFrames);
-        ActiveFrameIndex = Math.Clamp(activeFrameIndex, 0, Frames.Count - 1);
+        ActiveFrameIndex = activeFrameIdx;
     }
-    
+
     public Color GetPixel(int x, int y)
     {
-        if (x < 0 || x >= Width || y < 0 || y >= Height) return TransparentColor;
+        if (x < 0 || x >= Width || y < 0 || y >= Height || Layers.Count == 0) return TransparentColor;
         return Layers[ActiveLayerIndex].GetPixel(x, y);
     }
 
     public void SetPixel(int x, int y, Color color)
     {
-        if (x < 0 || x >= Width || y < 0 || y >= Height) return;
+        if (x < 0 || x >= Width || y < 0 || y >= Height || Layers.Count == 0) return;
         Layers[ActiveLayerIndex].SetPixel(x, y, color);
         Frames[ActiveFrameIndex].IsThumbnailDirty = true;
     }
@@ -124,18 +169,27 @@ public class Canvas : IDisposable
     {
         if (x < 0 || x >= Width || y < 0 || y >= Height) return TransparentColor;
         Color final = TransparentColor;
-        
+
         for (int i = 0; i < Layers.Count; i++)
         {
-            if (!Layers[i].IsVisible) continue;
+            if (!Layers[i].IsVisible || Layers[i].Opacity == 0) continue;
             Color c = Layers[i].GetPixel(x, y);
-            if (c.A > 0) final = c; 
+            if (c.A > 0)
+            {
+                if (Layers[i].Opacity < 255)
+                {
+                    c.A = (byte)((c.A * Layers[i].Opacity) / 255);
+                    if (c.A == 0) continue;
+                }
+                final = BlendOver(final, c);
+            }
         }
         return final;
     }
 
     public void Clear(Color color)
     {
+        if (Layers.Count == 0) return;
         Layers[ActiveLayerIndex].Fill(color);
         Frames[ActiveFrameIndex].IsThumbnailDirty = true;
     }
@@ -173,7 +227,7 @@ public class Canvas : IDisposable
             if (ActiveFrameIndex > 0 && Frames[ActiveFrameIndex - 1].IsVisible)
             {
                 Texture2D prevTex = Frames[ActiveFrameIndex - 1].GetOrUpdateThumbnail(Width, Height);
-                Raylib.DrawTexturePro(prevTex, srcRect, destRect, Vector2.Zero, 0f, new Color((byte)255, (byte)255, (byte)255, prevAlpha)); 
+                Raylib.DrawTexturePro(prevTex, srcRect, destRect, Vector2.Zero, 0f, new Color((byte)255, (byte)255, (byte)255, prevAlpha));
             }
 
             if (ActiveFrameIndex < Frames.Count - 1 && Frames[ActiveFrameIndex + 1].IsVisible)
@@ -183,11 +237,10 @@ public class Canvas : IDisposable
             }
         }
 
-        for (int i = 0; i < Layers.Count; i++)
+        if (Frames.Count > 0)
         {
-            if (!Layers[i].IsVisible) continue;
-            Texture2D layerTex = Layers[i].GetOrUpdateTexture();
-            Raylib.DrawTexturePro(layerTex, srcRect, destRect, Vector2.Zero, 0f, Color.White);
+            Texture2D mergedFrameTex = Frames[ActiveFrameIndex].GetOrUpdateThumbnail(Width, Height);
+            Raylib.DrawTexturePro(mergedFrameTex, srcRect, destRect, Vector2.Zero, 0f, Color.White);
         }
 
         if (ShowGrid)

@@ -1,3 +1,4 @@
+// === DOSYA: \UI\LayerPanel.cs ===
 using System;
 using System.Numerics;
 using Raylib_cs;
@@ -146,16 +147,25 @@ public class LayerPanel
 
                         if (Raylib.CheckCollisionPointRec(mousePos, eyeRect))
                         {
+                            history.SaveState(canvas);
                             canvas.Layers[i].IsVisible = !canvas.Layers[i].IsVisible;
                             canvas.Frames[canvas.ActiveFrameIndex].IsThumbnailDirty = true;
                             onLayerChanged();
                         }
                         else if (Raylib.CheckCollisionPointRec(mousePos, delBtn) && canvas.Layers.Count > 1)
                         {
+                            int prevActive = canvas.ActiveLayerIndex;
                             history.SaveState(canvas);
                             canvas.Layers[i].Dispose();
                             canvas.Layers.RemoveAt(i);
-                            if (canvas.ActiveLayerIndex >= canvas.Layers.Count) canvas.ActiveLayerIndex = canvas.Layers.Count - 1;
+
+                            if (prevActive > i)
+                                canvas.ActiveLayerIndex = prevActive - 1;
+                            else if (prevActive >= canvas.Layers.Count)
+                                canvas.ActiveLayerIndex = canvas.Layers.Count - 1;
+                            else
+                                canvas.ActiveLayerIndex = prevActive;
+
                             canvas.Frames[canvas.ActiveFrameIndex].IsThumbnailDirty = true;
                             onLayerChanged();
                             return true;
