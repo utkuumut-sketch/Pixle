@@ -24,6 +24,7 @@ public class LoomFrameData
 {
     public int ActiveLayerIndex { get; set; } = 0;
     public bool IsVisible { get; set; } = true;
+    public bool AlphaLock { get; set; } = false;
     public List<LoomLayerData> Layers { get; set; } = new();
 }
 
@@ -31,6 +32,7 @@ public class LoomLayerData
 {
     public string Name { get; set; } = "Katman 1";
     public bool IsVisible { get; set; } = true;
+    public bool AlphaLock { get; set; } = false;
     
     // Ileride katman opakligi eklendiginde dosya formatini bozmamak icin simdiden tanimliyoruz (0-255)
     public byte Opacity { get; set; } = 255;

@@ -35,23 +35,23 @@ public class TopMenu
 
     public void Layout()
     {
-        float currentX = 10f;
+        float currentX = 38f;
         foreach (var cat in categories)
         {
-            int textW = Raylib.MeasureText(cat.Title, 15);
+            int textW = Raylib.MeasureText(cat.Title, 14);
             float btnW = textW + 24;
-            cat.HeaderBounds = new Rectangle(currentX, 4, btnW, Height - 8);
-            currentX += btnW + 5;
+            cat.HeaderBounds = new Rectangle(currentX, 5, btnW, Height - 10);
+            currentX += btnW + 6;
         }
     }
 
     private float CalculateDropdownWidth(MenuCategory cat)
     {
-        int maxW = 160; // Minimum genişlik
+        int maxW = 190;
         foreach (var item in cat.Items)
         {
-            int w = Raylib.MeasureText(item.Text, 14);
-            if (w + 40 > maxW) maxW = w + 40; // 40 piksel padding
+            int w = Raylib.MeasureText(item.Text, 13);
+            if (w + 48 > maxW) maxW = w + 48;
         }
         return maxW;
     }
@@ -75,7 +75,7 @@ public class TopMenu
             if (isAnyMenuOpen)
             {
                 var cat = categories[openCategoryIndex];
-                float dropY = Height;
+                float dropY = Height + 2;
                 float dropW = CalculateDropdownWidth(cat);
                 float itemH = 28f;
 
@@ -97,8 +97,17 @@ public class TopMenu
 
         if (isAnyMenuOpen)
         {
+            for (int i = 0; i < categories.Count; i++)
+            {
+                if (Raylib.CheckCollisionPointRec(mousePos, categories[i].HeaderBounds))
+                {
+                    openCategoryIndex = i;
+                    break;
+                }
+            }
+
             var cat = categories[openCategoryIndex];
-            Rectangle dropArea = new Rectangle(cat.HeaderBounds.X, Height, CalculateDropdownWidth(cat), cat.Items.Count * 28f);
+            Rectangle dropArea = new Rectangle(cat.HeaderBounds.X, Height, CalculateDropdownWidth(cat), cat.Items.Count * 28f + 8);
             if (Raylib.CheckCollisionPointRec(mousePos, dropArea)) return true;
         }
 
@@ -108,8 +117,12 @@ public class TopMenu
     public void Draw(int screenWidth)
     {
         Vector2 mousePos = Raylib.GetMousePosition();
-        Raylib.DrawRectangle(0, 0, screenWidth, (int)Height, new Color(25, 25, 25, 255));
-        Raylib.DrawLine(0, (int)Height, screenWidth, (int)Height, Color.DarkGray);
+        Raylib.DrawRectangle(0, 0, screenWidth, (int)Height, PixelSkin.InsetDark);
+        Raylib.DrawRectangle(0, (int)Height - 2, screenWidth, 1, PixelSkin.BevelShadow);
+        Raylib.DrawLine(0, (int)Height, screenWidth, (int)Height, PixelSkin.BorderOutline);
+
+        // Sol Ust Uygulama İkonu
+        PixelIcons.DrawIcon("app_logo", 11, 10, 16f);
 
         for (int i = 0; i < categories.Count; i++)
         {
@@ -117,30 +130,57 @@ public class TopMenu
             bool isOpen = (openCategoryIndex == i);
             bool isHovered = Raylib.CheckCollisionPointRec(mousePos, cat.HeaderBounds);
 
-            Color bg = isOpen ? new Color(60, 60, 60, 255) : isHovered ? new Color(45, 45, 45, 255) : Color.Blank;
-            if (bg.A > 0) Raylib.DrawRectangleRec(cat.HeaderBounds, bg);
+            if (isOpen || isHovered)
+            {
+                PixelSkin.DrawButton(cat.HeaderBounds, isHovered, isOpen);
+            }
 
-            int textW = Raylib.MeasureText(cat.Title, 15);
-            Raylib.DrawText(cat.Title, (int)(cat.HeaderBounds.X + (cat.HeaderBounds.Width - textW) / 2), (int)(cat.HeaderBounds.Y + (cat.HeaderBounds.Height - 15) / 2), 15, Color.RayWhite);
+            int textW = Raylib.MeasureText(cat.Title, 14);
+            Raylib.DrawText(
+                cat.Title,
+                (int)(cat.HeaderBounds.X + (cat.HeaderBounds.Width - textW) / 2),
+                (int)(cat.HeaderBounds.Y + (cat.HeaderBounds.Height - 14) / 2),
+                14,
+                isOpen ? PixelSkin.AccentGold : PixelSkin.TextPrimary
+            );
         }
 
         if (openCategoryIndex != -1)
         {
             var cat = categories[openCategoryIndex];
-            float dropY = Height;
+            float dropY = Height + 2;
             float dropW = CalculateDropdownWidth(cat);
             float itemH = 28f;
-            float totalH = cat.Items.Count * itemH;
+            float totalH = cat.Items.Count * itemH + 8;
 
-            Raylib.DrawRectangle((int)cat.HeaderBounds.X, (int)dropY, (int)dropW, (int)totalH, new Color(35, 35, 35, 255));
-            Raylib.DrawRectangleLines((int)cat.HeaderBounds.X, (int)dropY, (int)dropW, (int)totalH, Color.DarkGray);
+            Rectangle dropRect = new Rectangle(cat.HeaderBounds.X, dropY, dropW, totalH);
+            Raylib.DrawRectangle((int)dropRect.X + 4, (int)dropRect.Y + 4, (int)dropRect.Width, (int)dropRect.Height, new Color((byte)0, (byte)0, (byte)0, (byte)130));
+            PixelSkin.DrawPanel(dropRect);
 
             for (int j = 0; j < cat.Items.Count; j++)
             {
-                Rectangle itemRect = new Rectangle(cat.HeaderBounds.X, dropY + (j * itemH), dropW, itemH);
+                Rectangle itemRect = new Rectangle(cat.HeaderBounds.X + 4, dropY + 4 + (j * itemH), dropW - 8, itemH);
                 bool itemHovered = Raylib.CheckCollisionPointRec(mousePos, itemRect);
-                if (itemHovered) Raylib.DrawRectangleRec(itemRect, new Color(55, 75, 115, 255));
-                Raylib.DrawText(cat.Items[j].Text, (int)itemRect.X + 10, (int)itemRect.Y + 6, 14, Color.RayWhite);
+                if (itemHovered)
+                {
+                    Raylib.DrawRectangleRec(itemRect, PixelSkin.AccentBg);
+                    Raylib.DrawRectangleLinesEx(itemRect, 1f, PixelSkin.AccentPrimary);
+                }
+
+                string rawText = cat.Items[j].Text;
+                int parenIdx = rawText.LastIndexOf('(');
+                if (parenIdx > 0 && rawText.EndsWith(')'))
+                {
+                    string mainLabel = rawText[..parenIdx].TrimEnd();
+                    string shortcutLabel = rawText[(parenIdx + 1)..^1];
+                    Raylib.DrawText(mainLabel, (int)itemRect.X + 10, (int)itemRect.Y + 7, 13, itemHovered ? Color.White : PixelSkin.TextPrimary);
+                    int sw = Raylib.MeasureText(shortcutLabel, 11);
+                    Raylib.DrawText(shortcutLabel, (int)(itemRect.X + itemRect.Width - sw - 10), (int)itemRect.Y + 8, 11, itemHovered ? PixelSkin.AccentGold : PixelSkin.TextMuted);
+                }
+                else
+                {
+                    Raylib.DrawText(rawText, (int)itemRect.X + 10, (int)itemRect.Y + 7, 13, itemHovered ? Color.White : PixelSkin.TextPrimary);
+                }
             }
         }
     }

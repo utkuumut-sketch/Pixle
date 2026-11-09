@@ -99,6 +99,21 @@ public partial class SelectionManager
         IsDraggingDial = false;
     }
 
+    public void ConfirmRotationSession()
+    {
+        ClearRotationBackup();
+        floatingMenuState = 0;
+        isRotateInputActive = false;
+    }
+
+    public void CancelRotationSession()
+    {
+        RestoreRotationBackup();
+        ClearRotationBackup();
+        floatingMenuState = 0;
+        isRotateInputActive = false;
+    }
+
     private void ApplyLiveRotation(float angleDegrees)
     {
         if (rotBackupMask == null || rotBackupPixels == null) return;

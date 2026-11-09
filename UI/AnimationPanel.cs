@@ -24,6 +24,13 @@ public class AnimationPanel
     
     public bool IsPlaying { get; private set; } = false;
     private float playTimer = 0f;
+
+    public void Stop()
+    {
+        IsPlaying = false;
+        playTimer = 0f;
+        draggingFrameIndex = -1;
+    }
     
     public float Fps { get; set; } = 8f; 
     public int ThumbnailSize { get; set; } = 64; 
@@ -135,9 +142,40 @@ public class AnimationPanel
             }
         }
 
+        int boxSize = ThumbnailSize; 
+        int spacing = 10;
+        float startX = panelRect.X + 12 - scrollX;
+        float startY = panelRect.Y + (Height - boxSize) / 2; 
+        float listAvailableWidth = panelRect.Width - 135; 
+
+        int itemCount = canvas.Frames.Count + 1; 
+        float totalWidth = itemCount * boxSize + (itemCount - 1) * spacing + 24;
+        float maxScroll = Math.Max(0, totalWidth - listAvailableWidth);
+        scrollX = Math.Clamp(scrollX, 0, maxScroll);
+
+        if (draggingFrameIndex != -1)
+        {
+            if (Raylib.IsMouseButtonReleased(MouseButton.Left))
+            {
+                int dropIndex = (int)Math.Round((mousePos.X - startX) / (boxSize + spacing));
+                dropIndex = Math.Clamp(dropIndex, 0, canvas.Frames.Count - 1);
+
+                if (dropIndex != draggingFrameIndex && draggingFrameIndex < canvas.Frames.Count)
+                {
+                    history.SaveState(canvas);
+                    var frame = canvas.Frames[draggingFrameIndex];
+                    canvas.Frames.RemoveAt(draggingFrameIndex);
+                    canvas.Frames.Insert(dropIndex, frame);
+                    canvas.ActiveFrameIndex = dropIndex;
+                    onFrameChanged();
+                }
+                draggingFrameIndex = -1;
+            }
+            return true;
+        }
+
         if (!Raylib.CheckCollisionPointRec(mousePos, panelRect)) 
         {
-            if (draggingFrameIndex != -1 && Raylib.IsMouseButtonReleased(MouseButton.Left)) draggingFrameIndex = -1;
             return false;
         }
 
@@ -149,36 +187,8 @@ public class AnimationPanel
 
         if (IsPlaying) return true;
 
-        int boxSize = ThumbnailSize; 
-        int spacing = 10;
-        float startX = panelRect.X + 12 - scrollX;
-        float startY = panelRect.Y + (Height - boxSize) / 2; 
-        float listAvailableWidth = panelRect.Width - 135; 
-
-        int itemCount = canvas.Frames.Count + 1; 
-        float totalWidth = itemCount * boxSize + (itemCount - 1) * spacing + 24;
-        float maxScroll = Math.Max(0, totalWidth - listAvailableWidth);
-
         float wheel = Raylib.GetMouseWheelMove();
         if (wheel != 0) { scrollX = Math.Clamp(scrollX - wheel * 40f, 0, maxScroll); }
-
-        if (draggingFrameIndex != -1 && Raylib.IsMouseButtonReleased(MouseButton.Left))
-        {
-            int dropIndex = (int)Math.Round((mousePos.X - startX) / (boxSize + spacing));
-            dropIndex = Math.Clamp(dropIndex, 0, canvas.Frames.Count - 1);
-
-            if (dropIndex != draggingFrameIndex)
-            {
-                history.SaveState(canvas);
-                var frame = canvas.Frames[draggingFrameIndex];
-                canvas.Frames.RemoveAt(draggingFrameIndex);
-                canvas.Frames.Insert(dropIndex, frame);
-                canvas.ActiveFrameIndex = dropIndex;
-                onFrameChanged();
-            }
-            draggingFrameIndex = -1;
-            return true;
-        }
 
         if (Raylib.IsMouseButtonPressed(MouseButton.Left))
         {

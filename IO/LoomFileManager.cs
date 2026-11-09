@@ -93,6 +93,7 @@ public static class LoomFileManager
                         {
                             Name = layer.Name,
                             IsVisible = layer.IsVisible,
+                            AlphaLock = layer.AlphaLock,
                             Opacity = layer.Opacity,
                             DataFile = binEntryName
                         });
@@ -330,9 +331,10 @@ public static class LoomFileManager
                             byte g = pixelBuffer[offset++];
                             byte b = pixelBuffer[offset++];
                             byte a = pixelBuffer[offset++];
-                            newLayer.SetPixelDirect(x, y, new Color(r, g, b, a));
+                            newLayer.SetPixel(x, y, new Color(r, g, b, a), ignoreAlphaLock: true);
                         }
                     }
+                    newLayer.AlphaLock = lData.AlphaLock;
                     newLayer.IsDirty = true;
                     currentFrame.Layers.Add(newLayer);
                 }

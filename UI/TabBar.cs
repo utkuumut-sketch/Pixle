@@ -16,9 +16,9 @@ public class TabBar
     private int lastTabCount = 0;
 
     private const float HomeEndX = 96f;
-    private const int TabWidth = 140;
+    private const int TabWidth = 145;
     private const int TabSpacing = 4;
-    private const float NavAreaWidth = 92f; // '<', '>' ve '+' butonları için sağda ayrılan güvenli alan
+    private const float NavAreaWidth = 92f;
 
     private void EnsureActiveTabVisible(int activeTabIndex, int tabCount, float viewportWidth)
     {
@@ -59,7 +59,6 @@ public class TabBar
 
         if (mousePos.Y < TopOffset || mousePos.Y > TopOffset + Height) return false;
 
-        // Fare tekerleği ile sekmeleri yatay kaydır
         float wheel = Raylib.GetMouseWheelMove();
         if (wheel != 0 && maxScroll > 0f)
         {
@@ -75,7 +74,6 @@ public class TabBar
                 return true;
             }
 
-            // Sağ taraftaki kaydırma ('<', '>') ve yeni sekme ('+') butonları
             float navStartX = HomeEndX + Math.Min(totalContentW, viewportWidth) + 4f;
             if (maxScroll > 0f)
             {
@@ -109,7 +107,6 @@ public class TabBar
                 }
             }
 
-            // Sekme görünür alanı içindeki tıklamalar
             Rectangle viewportRect = new Rectangle(HomeEndX, TopOffset, viewportWidth, Height);
             if (Raylib.CheckCollisionPointRec(mousePos, viewportRect))
             {
@@ -149,32 +146,31 @@ public class TabBar
             lastTabCount = tabs.Count;
         }
 
-        Raylib.DrawRectangle(0, (int)TopOffset, screenWidth, (int)Height, new Color(20, 20, 24, 255));
+        Raylib.DrawRectangle(0, (int)TopOffset, screenWidth, (int)Height, new Color((byte)24, (byte)25, (byte)32, (byte)255));
         int bottomLineY = (int)(TopOffset + Height);
-        Raylib.DrawLine(0, bottomLineY, screenWidth, bottomLineY, Color.DarkGray);
+        Raylib.DrawLine(0, bottomLineY, screenWidth, bottomLineY, PixelSkin.PanelBorderDark);
 
         Vector2 mousePos = Raylib.GetMousePosition();
         bool isHomeActive = (activeTabIndex == -1);
 
-        Rectangle homeRect = new Rectangle(6, TopOffset + 6, 85, Height - 6);
+        Rectangle homeRect = new Rectangle(6, TopOffset + 5, 85, Height - 5);
         if (!isHomeActive)
         {
             bool hover = Raylib.CheckCollisionPointRec(mousePos, homeRect);
-            Raylib.DrawRectangleRec(homeRect, hover ? new Color(38, 38, 44, 255) : new Color(28, 28, 32, 255));
-            Raylib.DrawRectangleLinesEx(homeRect, 1, Color.DarkGray);
-            Raylib.DrawText("Home", (int)homeRect.X + 24, (int)homeRect.Y + 8, 14, Color.Gray);
+            Raylib.DrawRectangleRec(homeRect, hover ? new Color((byte)42, (byte)44, (byte)54, (byte)255) : new Color((byte)30, (byte)31, (byte)38, (byte)255));
+            Raylib.DrawRectangleLinesEx(homeRect, 1, PixelSkin.PanelBorderDark);
+            Raylib.DrawText("Home", (int)homeRect.X + 24, (int)homeRect.Y + 9, 13, PixelSkin.TextMuted);
         }
         else
         {
             Rectangle aRect = new Rectangle(homeRect.X, TopOffset + 3, homeRect.Width, Height - 2);
-            Raylib.DrawRectangleRec(aRect, new Color(45, 75, 115, 255));
-            Raylib.DrawLine((int)aRect.X, (int)aRect.Y, (int)(aRect.X + aRect.Width), (int)aRect.Y, Color.SkyBlue);
-            Raylib.DrawLine((int)aRect.X, (int)aRect.Y, (int)aRect.X, (int)(aRect.Y + aRect.Height), Color.SkyBlue);
-            Raylib.DrawLine((int)(aRect.X + aRect.Width), (int)aRect.Y, (int)(aRect.X + aRect.Width), (int)(aRect.Y + aRect.Height), Color.SkyBlue);
-            Raylib.DrawText("Home", (int)aRect.X + 24, (int)aRect.Y + 11, 14, Color.Yellow);
+            Raylib.DrawRectangleRec(aRect, new Color((byte)52, (byte)85, (byte)135, (byte)255));
+            Raylib.DrawRectangle((int)aRect.X, (int)aRect.Y, (int)aRect.Width, 2, PixelSkin.AccentGold);
+            Raylib.DrawLine((int)aRect.X, (int)aRect.Y, (int)aRect.X, (int)(aRect.Y + aRect.Height), PixelSkin.AccentCyan);
+            Raylib.DrawLine((int)(aRect.X + aRect.Width), (int)aRect.Y, (int)(aRect.X + aRect.Width), (int)(aRect.Y + aRect.Height), PixelSkin.AccentCyan);
+            Raylib.DrawText("Home", (int)aRect.X + 24, (int)aRect.Y + 11, 13, PixelSkin.AccentGold);
         }
 
-        // Sekmeleri görünür alan içinde kırparak çiz
         Raylib.BeginScissorMode((int)HomeEndX, (int)TopOffset, (int)viewportWidth, (int)Height + 2);
 
         for (int i = 0; i < tabs.Count; i++)
@@ -187,17 +183,17 @@ public class TabBar
             Rectangle tRect = new Rectangle(tabX, TopOffset + 6, TabWidth, Height - 6);
             bool hover = Raylib.CheckCollisionPointRec(mousePos, tRect);
 
-            Raylib.DrawRectangleRec(tRect, hover ? new Color(38, 38, 44, 255) : new Color(28, 28, 32, 255));
-            Raylib.DrawRectangleLinesEx(tRect, 1, Color.DarkGray);
+            Raylib.DrawRectangleRec(tRect, hover ? new Color((byte)42, (byte)44, (byte)54, (byte)255) : new Color((byte)30, (byte)31, (byte)38, (byte)255));
+            Raylib.DrawRectangleLinesEx(tRect, 1, PixelSkin.PanelBorderDark);
 
             string title = tabs[i].GetDisplayTitle();
-            if (title.Length > 14) title = title[..14] + "..";
-            Raylib.DrawText(title, (int)tRect.X + 10, (int)tRect.Y + 8, 13, tabs[i].IsDirty ? Color.Yellow : Color.Gray);
+            if (title.Length > 15) title = title[..15] + "..";
+            Raylib.DrawText(title, (int)tRect.X + 10, (int)tRect.Y + 8, 12, tabs[i].IsDirty ? PixelSkin.AccentGold : PixelSkin.TextMuted);
 
-            Rectangle closeRect = new Rectangle(tRect.X + TabWidth - 26, tRect.Y + 4, 20, 20);
+            Rectangle closeRect = new Rectangle(tRect.X + TabWidth - 25, tRect.Y + 5, 19, 19);
             bool closeHover = Raylib.CheckCollisionPointRec(mousePos, closeRect);
-            if (closeHover) Raylib.DrawRectangleRounded(closeRect, 0.2f, 4, new Color(180, 45, 45, 255));
-            Raylib.DrawText("x", (int)closeRect.X + 6, (int)closeRect.Y + 2, 14, closeHover ? Color.White : Color.Gray);
+            if (closeHover) Raylib.DrawRectangleRec(closeRect, new Color((byte)185, (byte)50, (byte)50, (byte)255));
+            Raylib.DrawText("x", (int)closeRect.X + 6, (int)closeRect.Y + 2, 13, closeHover ? Color.White : PixelSkin.TextMuted);
         }
 
         if (activeTabIndex >= 0 && activeTabIndex < tabs.Count)
@@ -205,24 +201,23 @@ public class TabBar
             float activeX = HomeEndX + activeTabIndex * (TabWidth + TabSpacing) - scrollX;
             Rectangle aRect = new Rectangle(activeX, TopOffset + 3, TabWidth, Height - 2);
 
-            Raylib.DrawRectangleRec(aRect, new Color(48, 48, 55, 255));
-            Raylib.DrawLine((int)aRect.X, (int)aRect.Y, (int)(aRect.X + aRect.Width), (int)aRect.Y, Color.SkyBlue);
-            Raylib.DrawLine((int)aRect.X, (int)aRect.Y, (int)aRect.X, (int)(aRect.Y + aRect.Height), Color.SkyBlue);
-            Raylib.DrawLine((int)(aRect.X + aRect.Width), (int)aRect.Y, (int)(aRect.X + aRect.Width), (int)(aRect.Y + aRect.Height), Color.SkyBlue);
+            Raylib.DrawRectangleRec(aRect, PixelSkin.PanelBg);
+            Raylib.DrawRectangle((int)aRect.X, (int)aRect.Y, (int)aRect.Width, 2, PixelSkin.AccentGold);
+            Raylib.DrawLine((int)aRect.X, (int)aRect.Y, (int)aRect.X, (int)(aRect.Y + aRect.Height), PixelSkin.PanelBorderLight);
+            Raylib.DrawLine((int)(aRect.X + aRect.Width), (int)aRect.Y, (int)(aRect.X + aRect.Width), (int)(aRect.Y + aRect.Height), PixelSkin.PanelBorderDark);
 
             string title = tabs[activeTabIndex].GetDisplayTitle();
-            if (title.Length > 14) title = title[..14] + "..";
-            Raylib.DrawText(title, (int)aRect.X + 10, (int)aRect.Y + 11, 13, tabs[activeTabIndex].IsDirty ? Color.Yellow : Color.White);
+            if (title.Length > 15) title = title[..15] + "..";
+            Raylib.DrawText(title, (int)aRect.X + 10, (int)aRect.Y + 11, 12, tabs[activeTabIndex].IsDirty ? PixelSkin.AccentGold : Color.White);
 
-            Rectangle closeRect = new Rectangle(aRect.X + TabWidth - 26, aRect.Y + 7, 20, 20);
+            Rectangle closeRect = new Rectangle(aRect.X + TabWidth - 25, aRect.Y + 8, 19, 19);
             bool closeHover = Raylib.CheckCollisionPointRec(mousePos, closeRect);
-            if (closeHover) Raylib.DrawRectangleRounded(closeRect, 0.2f, 4, new Color(180, 45, 45, 255));
-            Raylib.DrawText("x", (int)closeRect.X + 6, (int)closeRect.Y + 3, 14, closeHover ? Color.White : Color.Gray);
+            if (closeHover) Raylib.DrawRectangleRec(closeRect, new Color((byte)195, (byte)55, (byte)55, (byte)255));
+            Raylib.DrawText("x", (int)closeRect.X + 6, (int)closeRect.Y + 2, 13, closeHover ? Color.White : PixelSkin.TextPrimary);
         }
 
         Raylib.EndScissorMode();
 
-        // Navigasyon ve '+' butonları
         float navStartX = HomeEndX + Math.Min(totalContentW, viewportWidth) + 4f;
         if (maxScroll > 0f)
         {
@@ -230,28 +225,20 @@ public class TabBar
             Rectangle rightBtn = new Rectangle(navStartX + 26, TopOffset + 6, 24, Height - 7);
             Rectangle plusRect = new Rectangle(navStartX + 54, TopOffset + 6, 28, Height - 7);
 
-            bool lHover = Raylib.CheckCollisionPointRec(mousePos, leftBtn);
-            Raylib.DrawRectangleRec(leftBtn, lHover ? new Color(55, 55, 65, 255) : new Color(35, 35, 40, 255));
-            Raylib.DrawRectangleLinesEx(leftBtn, 1, Color.DarkGray);
-            Raylib.DrawText("<", (int)leftBtn.X + 8, (int)leftBtn.Y + 6, 14, scrollX > 0 ? Color.White : Color.DarkGray);
+            PixelSkin.DrawButton(leftBtn, Raylib.CheckCollisionPointRec(mousePos, leftBtn), false);
+            Raylib.DrawText("<", (int)leftBtn.X + 8, (int)leftBtn.Y + 6, 14, scrollX > 0 ? Color.White : PixelSkin.TextMuted);
 
-            bool rHover = Raylib.CheckCollisionPointRec(mousePos, rightBtn);
-            Raylib.DrawRectangleRec(rightBtn, rHover ? new Color(55, 55, 65, 255) : new Color(35, 35, 40, 255));
-            Raylib.DrawRectangleLinesEx(rightBtn, 1, Color.DarkGray);
-            Raylib.DrawText(">", (int)rightBtn.X + 8, (int)rightBtn.Y + 6, 14, scrollX < maxScroll ? Color.White : Color.DarkGray);
+            PixelSkin.DrawButton(rightBtn, Raylib.CheckCollisionPointRec(mousePos, rightBtn), false);
+            Raylib.DrawText(">", (int)rightBtn.X + 8, (int)rightBtn.Y + 6, 14, scrollX < maxScroll ? Color.White : PixelSkin.TextMuted);
 
-            bool pHover = Raylib.CheckCollisionPointRec(mousePos, plusRect);
-            Raylib.DrawRectangleRec(plusRect, pHover ? new Color(55, 55, 65, 255) : new Color(35, 35, 40, 255));
-            Raylib.DrawRectangleLinesEx(plusRect, 1, Color.DarkGray);
-            Raylib.DrawText("+", (int)plusRect.X + 8, (int)plusRect.Y + 3, 18, Color.LightGray);
+            PixelSkin.DrawButton(plusRect, Raylib.CheckCollisionPointRec(mousePos, plusRect), false);
+            Raylib.DrawText("+", (int)plusRect.X + 9, (int)plusRect.Y + 4, 16, PixelSkin.AccentGold);
         }
         else
         {
             Rectangle plusRect = new Rectangle(navStartX, TopOffset + 6, 28, Height - 7);
-            bool plusHover = Raylib.CheckCollisionPointRec(mousePos, plusRect);
-            Raylib.DrawRectangleRec(plusRect, plusHover ? new Color(55, 55, 65, 255) : new Color(35, 35, 40, 255));
-            Raylib.DrawRectangleLinesEx(plusRect, 1, Color.DarkGray);
-            Raylib.DrawText("+", (int)plusRect.X + 8, (int)plusRect.Y + 3, 18, Color.LightGray);
+            PixelSkin.DrawButton(plusRect, Raylib.CheckCollisionPointRec(mousePos, plusRect), false);
+            Raylib.DrawText("+", (int)plusRect.X + 9, (int)plusRect.Y + 4, 16, PixelSkin.AccentGold);
         }
     }
 }

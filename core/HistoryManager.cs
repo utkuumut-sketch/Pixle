@@ -44,6 +44,7 @@ public class HistoryManager
             foreach (var l in clonedFrame.Layers)
             {
                 l.IsDirty = true;
+                l.FrameCompositeDirty = true;
             }
             canvas.Frames.Add(clonedFrame);
         }

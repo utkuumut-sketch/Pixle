@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using Raylib_cs;
 using PixelArtApp.Core;
+using PixelArtApp.Core.Palettes;
 using PixelArtApp.UI;
 
 namespace PixelArtApp;
@@ -58,11 +59,16 @@ partial class Program
 
     static (int x, int y)? lastGridPos = null;
     static (int x, int y)? dragStartPos = null;
+    static (int x, int y)? curveStartPos = null;
+    static (int x, int y)? curveEndPos = null;
+    static bool isCurveAwaitingControl = false;
     static bool isGridVisible = false;
+    static bool isTileWrapEnabled = false;
 
     static bool sizeInputActive = false;
     static string sizeInputText = "1";
     static float targetZoom = 1.0f;
+    static ReferenceImageManager refManager = null!;
 
     static ProjectTab? ActiveTab => (activeTabIndex >= 0 && activeTabIndex < tabs.Count) ? tabs[activeTabIndex] : null;
 
@@ -96,6 +102,7 @@ partial class Program
             t.History.ClearAll();
             t.Canvas.Dispose();
         }
+        refManager.ClearReference();
         colorPicker.Unload();
         PixelSkin.UnloadSkin();
         Raylib.CloseWindow();
@@ -116,6 +123,7 @@ partial class Program
         animationPanel = new AnimationPanel();
         palette = new Palette(new Vector2(1080 - RightPanelWidth + 20, WorkspaceTopY + 35));
         colorPicker = new ColorPickerDialog();
+        refManager = new ReferenceImageManager();
     }
 
     static void SetupTopMenu()
@@ -126,7 +134,7 @@ partial class Program
             items.Add(new MenuItem("Ac... (Ctrl+O)", OpenProjectWithDialog));
             items.Add(new MenuItem("Kaydet (Ctrl+S)", () => { if (ActiveTab != null) SaveTabProject(ActiveTab, saveAs: false); }));
             items.Add(new MenuItem("Farkli Kaydet... (Ctrl+Shift+S)", () => { if (ActiveTab != null) SaveTabProject(ActiveTab, saveAs: true); }));
-            items.Add(new MenuItem("PNG / Sprite Sheet Disa Aktar (Ctrl+E)", () =>
+            items.Add(new MenuItem("PNG / GIF / Sprite Sheet Disa Aktar (Ctrl+E)", () =>
             {
                 if (ActiveTab != null) exportDialog.Open(ActiveTab.Title, ActiveTab.Canvas);
             }));
@@ -140,7 +148,7 @@ partial class Program
             items.Add(new MenuItem("Ileri Al (Ctrl+Y)", () => { if (ActiveTab != null) { ActiveTab.Selection.CancelOrCommit(ActiveTab.Canvas); ActiveTab.History.Redo(ActiveTab.Canvas); } }));
             items.Add(new MenuItem("Kopyala (Ctrl+C)", () => ActiveTab?.Selection.Copy(ActiveTab.Canvas)));
             items.Add(new MenuItem("Kes (Ctrl+X)", () => { if (ActiveTab != null) ActiveTab.Selection.Cut(ActiveTab.Canvas, ActiveTab.History); }));
-            items.Add(new MenuItem("Yapistir (Ctrl+V)", () => { if (ActiveTab != null) { toolManager.ActiveTool = ToolType.SelectMove; ActiveTab.Selection.Paste(ActiveTab.Canvas, ActiveTab.History); } }));
+            items.Add(new MenuItem("Yapistir (Ctrl+V)", () => { if (ActiveTab != null) { SelectTool(ToolType.SelectMove); ActiveTab.Selection.Paste(ActiveTab.Canvas, ActiveTab.History); } }));
             items.Add(new MenuItem("Cogalt (Ctrl+D)", () => { if (ActiveTab != null) ActiveTab.Selection.Duplicate(ActiveTab.Canvas, ActiveTab.History); }));
             items.Add(new MenuItem("Temizle", ClearCanvas));
             items.Add(new MenuItem("Ayarlar...", () => settingsDialog.Open()));
@@ -149,6 +157,9 @@ partial class Program
         topMenu.AddCategory("Gorunum", items =>
         {
             items.Add(new MenuItem("Izgara Ac/Kapat", ToggleGrid));
+            items.Add(new MenuItem("Karo Izgarasi (8x8 / 16x16 / 32x32) (G)", CycleTileGrid));
+            items.Add(new MenuItem("Tile / Doseme Modu Ac/Kapat (T)", ToggleTileWrap));
+            items.Add(new MenuItem("Alfa Kilidi Ac/Kapat (A)", ToggleAlphaLock));
             items.Add(new MenuItem("Sogan Zari (Onion Skin) Ac/Kapat", () =>
             {
                 AppSettings.EnableOnionSkin = !AppSettings.EnableOnionSkin;
@@ -156,15 +167,47 @@ partial class Program
             }));
             items.Add(new MenuItem("Animasyon Paneli Gizle/Ac (Yukari Ok)", () => animationPanel.ToggleHidden()));
             items.Add(new MenuItem("Katman Paneli Gizle/Ac (Asagi Ok)", () => layerPanel.ToggleHidden()));
+            items.Add(new MenuItem("Referans Bolumunu Gizle/Ac", () =>
+            {
+                AppSettings.ShowReferencePanel = !AppSettings.ShowReferencePanel;
+                ShowStatus(AppSettings.ShowReferencePanel ? "Referans bolumu acildi" : "Referans bolumu gizlendi");
+            }));
+            items.Add(new MenuItem("Pixel-Perfect Modu Ac/Kapat (P)", () =>
+            {
+                toolManager.PixelPerfect = !toolManager.PixelPerfect;
+                ShowStatus($"Pixel-Perfect: {(toolManager.PixelPerfect ? "Acik" : "Kapali")}");
+            }));
+            items.Add(new MenuItem("Simetri Modu Degistir (S)", () =>
+            {
+                toolManager.CycleSymmetry();
+                ShowStatus($"Simetri Modu: {ToolManager.SymmetryLabel(toolManager.Symmetry)}");
+            }));
             items.Add(new MenuItem("Kamerayi Sifirla", () => { if (ActiveTab != null) CenterCamera(ActiveTab); }));
             items.Add(new MenuItem("Panellerin Yerini Sifirla", () =>
             {
-                LeftPanelWidth = 145;
+                LeftPanelWidth = 92;
                 RightPanelWidth = 180;
-                toolPanel.Width = 145f;
+                toolPanel.Width = 92f;
                 ShowStatus("Panellerin genisligi sifirlandi.");
             }));
             items.Add(new MenuItem("Ana Ekran (Home)", () => SwitchToTab(-1)));
+        });
+
+        topMenu.AddCategory("Paletler", items =>
+        {
+            for (int i = 0; i < PalettePresets.BuiltIn.Count; i++)
+            {
+                int presetIdx = i;
+                string pName = PalettePresets.BuiltIn[i].Name;
+                items.Add(new MenuItem($"Hazir Palet: {pName}", () =>
+                {
+                    palette.ApplyPreset(presetIdx);
+                    if (ActiveTab != null) ActiveTab.IsDirty = true;
+                    ShowStatus($"Palet yuklendi: {pName}");
+                }));
+            }
+            items.Add(new MenuItem("Palet Dosyasi Ice Aktar (.hex / .pal / .gpl)...", ImportPaletteFromFile));
+            items.Add(new MenuItem("Mevcut Paleti .HEX Olarak Disa Aktar...", ExportPaletteToFile));
         });
 
         topMenu.Layout();

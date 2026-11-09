@@ -27,10 +27,10 @@ public class Frame : IDisposable
     {
         for (int i = 0; i < Layers.Count; i++)
         {
-            if (Layers[i].IsDirty || Layers[i].VisibilityChanged)
+            if (Layers[i].FrameCompositeDirty || Layers[i].VisibilityChanged)
             {
                 IsThumbnailDirty = true;
-                Layers[i].IsDirty = false;
+                Layers[i].FrameCompositeDirty = false;
                 Layers[i].VisibilityChanged = false;
             }
         }

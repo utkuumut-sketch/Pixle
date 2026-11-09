@@ -100,8 +100,13 @@ public partial class SelectionManager
         int menuWidth = floatingMenuState == 0 ? 385 : (floatingMenuState == 1 ? 165 : 375);
         int menuHeight = floatingMenuState == 2 ? 48 : 32;
 
-        float menuX = Math.Clamp(screenAnchor.X - menuWidth / 2f, 150, Raylib.GetScreenWidth() - 190 - menuWidth);
-        float menuY = Math.Clamp(screenAnchor.Y + 12, 45, Raylib.GetScreenHeight() - 60);
+        float minX = AppSettings.LeftPanelWidth + 6f;
+        float maxX = Math.Max(minX, Raylib.GetScreenWidth() - AppSettings.RightPanelWidth - menuWidth - 6f);
+        float minY = 76f;
+        float maxY = Math.Max(minY, Raylib.GetScreenHeight() - menuHeight - 12f);
+
+        float menuX = Math.Clamp(screenAnchor.X - menuWidth / 2f, minX, maxX);
+        float menuY = Math.Clamp(screenAnchor.Y + 12, minY, maxY);
 
         return new Rectangle(menuX, menuY, menuWidth, menuHeight);
     }
@@ -236,7 +241,7 @@ public partial class SelectionManager
 
         Raylib.DrawRectangleRec(inputRect, isRotateInputActive ? new Color(15, 15, 20, 255) : new Color(40, 40, 45, 255));
         Raylib.DrawRectangleLinesEx(inputRect, 1, isRotateInputActive ? Color.Yellow : Color.Gray);
-        string displayAngle = rotateAngleText + (isRotateInputActive && (int)(Raylib.GetTime() * 3) % 2 == 0 ? "|" : "°");
+        string displayAngle = rotateAngleText + (isRotateInputActive && (int)(Raylib.GetTime() * 3) % 2 == 0 ? "|" : "");
         Raylib.DrawText(displayAngle, (int)inputRect.X + 5, (int)inputRect.Y + 6, 12, isRotateInputActive ? Color.Yellow : Color.White);
 
         curX += 52;
@@ -256,17 +261,12 @@ public partial class SelectionManager
                 else if (i == 2) { currentRotationAngle = 180f; rotateAngleText = "180"; ApplyLiveRotation(180f); }
                 else if (i == 3)
                 {
-                    ClearRotationBackup();
-                    floatingMenuState = 0;
-                    isRotateInputActive = false;
-                    onStatus($"{currentRotationAngle}° donduruldu.");
+                    ConfirmRotationSession();
+                    onStatus($"{currentRotationAngle} derece donduruldu.");
                 }
                 else if (i == 4)
                 {
-                    RestoreRotationBackup();
-                    ClearRotationBackup();
-                    floatingMenuState = 0;
-                    isRotateInputActive = false;
+                    CancelRotationSession();
                     onStatus("Dondurme iptal edildi.");
                 }
                 return true;

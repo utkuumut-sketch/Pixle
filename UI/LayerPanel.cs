@@ -62,12 +62,6 @@ public class LayerPanel
             return false;
         }
 
-        if (!Raylib.CheckCollisionPointRec(mousePos, panelRect)) 
-        {
-            if (draggingLayerIndex != -1 && Raylib.IsMouseButtonReleased(MouseButton.Left)) draggingLayerIndex = -1;
-            return false;
-        }
-
         int boxSize = 58; 
         int spacing = 10;
         float startX = panelRect.X + 12 - scrollX;
@@ -76,6 +70,47 @@ public class LayerPanel
         int itemCount = canvas.Layers.Count + 1; 
         float totalWidth = itemCount * boxSize + (itemCount - 1) * spacing + 24;
         float maxScroll = Math.Max(0, totalWidth - panelRect.Width);
+        scrollX = Math.Clamp(scrollX, 0, maxScroll);
+
+        if (isDraggingScrollbar)
+        {
+            if (Raylib.IsMouseButtonDown(MouseButton.Left) && maxScroll > 0)
+            {
+                float trackWidth = panelRect.Width - 24;
+                float thumbWidth = Math.Max(40f, (panelRect.Width / totalWidth) * trackWidth);
+                float deltaX = mousePos.X - scrollDragStartMouseX;
+                scrollX = Math.Clamp(scrollDragStartScrollX + (deltaX / Math.Max(1f, trackWidth - thumbWidth)) * maxScroll, 0, maxScroll);
+            }
+            else isDraggingScrollbar = false;
+            return true;
+        }
+
+        if (draggingLayerIndex != -1)
+        {
+            if (Raylib.IsMouseButtonReleased(MouseButton.Left))
+            {
+                int dropIndex = (int)Math.Round((mousePos.X - startX) / (boxSize + spacing));
+                dropIndex = Math.Clamp(dropIndex, 0, canvas.Layers.Count - 1);
+
+                if (dropIndex != draggingLayerIndex && draggingLayerIndex < canvas.Layers.Count)
+                {
+                    history.SaveState(canvas);
+                    var layer = canvas.Layers[draggingLayerIndex];
+                    canvas.Layers.RemoveAt(draggingLayerIndex);
+                    canvas.Layers.Insert(dropIndex, layer);
+                    canvas.ActiveLayerIndex = dropIndex;
+                    canvas.Frames[canvas.ActiveFrameIndex].IsThumbnailDirty = true;
+                    onLayerChanged();
+                }
+                draggingLayerIndex = -1;
+            }
+            return true;
+        }
+
+        if (!Raylib.CheckCollisionPointRec(mousePos, panelRect)) 
+        {
+            return false;
+        }
 
         float wheel = Raylib.GetMouseWheelMove();
         if (wheel != 0) { scrollX = Math.Clamp(scrollX - wheel * 40f, 0, maxScroll); }
@@ -92,37 +127,8 @@ public class LayerPanel
             if (Raylib.IsMouseButtonPressed(MouseButton.Left) && Raylib.CheckCollisionPointRec(mousePos, thumbRect))
             {
                 isDraggingScrollbar = true; scrollDragStartMouseX = mousePos.X; scrollDragStartScrollX = scrollX;
-            }
-
-            if (isDraggingScrollbar)
-            {
-                if (Raylib.IsMouseButtonDown(MouseButton.Left))
-                {
-                    float deltaX = mousePos.X - scrollDragStartMouseX;
-                    scrollX = Math.Clamp(scrollDragStartScrollX + (deltaX / Math.Max(1f, trackWidth - thumbWidth)) * maxScroll, 0, maxScroll);
-                }
-                else isDraggingScrollbar = false;
                 return true;
             }
-        }
-
-        if (draggingLayerIndex != -1 && Raylib.IsMouseButtonReleased(MouseButton.Left))
-        {
-            int dropIndex = (int)Math.Round((mousePos.X - startX) / (boxSize + spacing));
-            dropIndex = Math.Clamp(dropIndex, 0, canvas.Layers.Count - 1);
-
-            if (dropIndex != draggingLayerIndex)
-            {
-                history.SaveState(canvas);
-                var layer = canvas.Layers[draggingLayerIndex];
-                canvas.Layers.RemoveAt(draggingLayerIndex);
-                canvas.Layers.Insert(dropIndex, layer);
-                canvas.ActiveLayerIndex = dropIndex;
-                canvas.Frames[canvas.ActiveFrameIndex].IsThumbnailDirty = true;
-                onLayerChanged();
-            }
-            draggingLayerIndex = -1;
-            return true;
         }
 
         if (Raylib.IsMouseButtonPressed(MouseButton.Left) && !isDraggingScrollbar)
@@ -142,10 +148,16 @@ public class LayerPanel
                     }
                     else
                     {
+                        Rectangle lockRect = new Rectangle(boxRect.X + 2, boxRect.Y + boxSize - 18, 18, 16);
                         Rectangle eyeRect = new Rectangle(boxRect.X + boxSize - 22, boxRect.Y + boxSize - 18, 20, 16);
                         Rectangle delBtn = new Rectangle(boxRect.X + boxSize - 18, boxRect.Y + 2, 16, 16);
 
-                        if (Raylib.CheckCollisionPointRec(mousePos, eyeRect))
+                        if (Raylib.CheckCollisionPointRec(mousePos, lockRect))
+                        {
+                            canvas.Layers[i].AlphaLock = !canvas.Layers[i].AlphaLock;
+                            onLayerChanged();
+                        }
+                        else if (Raylib.CheckCollisionPointRec(mousePos, eyeRect))
                         {
                             history.SaveState(canvas);
                             canvas.Layers[i].IsVisible = !canvas.Layers[i].IsVisible;
@@ -308,6 +320,22 @@ public class LayerPanel
         {
             Raylib.DrawLine(eyeCx - 5, eyeCy - 4, eyeCx + 5, eyeCy + 4, Color.Red);
             Raylib.DrawLine(eyeCx - 5, eyeCy + 4, eyeCx + 5, eyeCy - 4, Color.Red);
+        }
+
+        // Sol-alt Alfa Kilidi (Alpha Lock) gostergesi ve butonu
+        bool aLock = canvas.Layers[index].AlphaLock;
+        Rectangle lockRect = new Rectangle(boxRect.X + 2, boxRect.Y + boxSize - 17, 16, 15);
+        bool lockHover = Raylib.CheckCollisionPointRec(mousePos, lockRect);
+        if (aLock || lockHover)
+        {
+            Raylib.DrawRectangleRec(lockRect, new Color((byte)14, (byte)16, (byte)22, (byte)200));
+            Color lockCol = aLock ? PixelSkin.AccentGold : new Color((byte)170, (byte)175, (byte)190, (byte)220);
+            int lx = (int)lockRect.X + 4;
+            int ly = (int)lockRect.Y + 3;
+            Raylib.DrawRectangleLines(lx + 1, ly, 6, 5, lockCol);
+            Raylib.DrawRectangle(lx, ly + 4, 8, 6, lockCol);
+            Raylib.DrawPixel(lx + 3, ly + 6, Color.Black);
+            Raylib.DrawPixel(lx + 4, ly + 6, Color.Black);
         }
 
         Color borderColor = isDragging ? Color.Yellow : (isActive ? Color.SkyBlue : new Color(30, 30, 30, 255));

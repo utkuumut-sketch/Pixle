@@ -27,6 +27,7 @@ public partial class SelectionManager
     public Vector2 Offset { get; private set; }
 
     private int floatingMenuState = 0; // 0: Ana Menü, 1: Yansıt, 2: Döndür
+    public bool IsInRotationMode => floatingMenuState == 2;
     private string rotateAngleText = "0";
     public bool isRotateInputActive = false;
     private float currentRotationAngle = 0f;
@@ -44,7 +45,7 @@ public partial class SelectionManager
     private int clipWidth, clipHeight;
     private Vector2 clipOrigin;
 
-    public void EnsureSize(int width, int height) { }
+
 
     public bool IsPointInCurrentSelection(int gx, int gy)
     {
@@ -354,7 +355,7 @@ public partial class SelectionManager
                 if (mask[x, y])
                 {
                     floatingPixels[x, y] = canvas.GetPixel(bx + x, by + y);
-                    canvas.SetPixel(bx + x, by + y, Canvas.TransparentColor);
+                    canvas.SetPixel(bx + x, by + y, Canvas.TransparentColor, ignoreAlphaLock: true);
                 }
                 else
                 {
@@ -400,7 +401,10 @@ public partial class SelectionManager
                     {
                         int tx = destStartX + x, ty = destStartY + y;
                         if (tx >= 0 && tx < w && ty >= 0 && ty < h)
-                            canvas.SetPixel(tx, ty, floatingPixels[x, y]);
+                        {
+                            Color blended = Canvas.BlendOver(canvas.GetPixel(tx, ty), floatingPixels[x, y]);
+                            canvas.SetPixel(tx, ty, blended);
+                        }
                     }
                 }
             }
@@ -423,7 +427,7 @@ public partial class SelectionManager
             for (int x = 0; x < bw; x++)
                 for (int y = 0; y < bh; y++)
                     if (mask[x, y])
-                        canvas.SetPixel(destStartX + x, destStartY + y, Canvas.TransparentColor);
+                        canvas.SetPixel(destStartX + x, destStartY + y, Canvas.TransparentColor, ignoreAlphaLock: true);
         }
 
         ResetSelectionState();

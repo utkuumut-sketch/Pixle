@@ -13,6 +13,7 @@ public class Canvas : IDisposable
     public int PixelScale { get; }
     public Vector2 Offset { get; set; }
     public bool ShowGrid { get; set; } = true;
+    public bool TileWrapMode { get; set; } = false;
     public static readonly Color TransparentColor = new Color(0, 0, 0, 0);
 
     public List<Frame> Frames { get; private set; } = new();
@@ -40,6 +41,16 @@ public class Canvas : IDisposable
         }
     }
 
+    public bool ActiveLayerAlphaLock
+    {
+        get => Layers.Count > 0 && Layers[ActiveLayerIndex].AlphaLock;
+        set
+        {
+            if (Layers.Count > 0)
+                Layers[ActiveLayerIndex].AlphaLock = value;
+        }
+    }
+
     private Texture2D checkerTexture;
     private bool hasChecker = false;
     private int lastCheckerContrast = -1;
@@ -54,6 +65,10 @@ public class Canvas : IDisposable
         Frames.Add(new Frame());
         Frames[0].Layers.Add(new Layer("Katman 1", width, height));
     }
+
+    public int WrapX(int x) => ((x % Width) + Width) % Width;
+    public int WrapY(int y) => ((y % Height) + Height) % Height;
+    public (int x, int y) WrapCoord(int x, int y) => (WrapX(x), WrapY(y));
 
     public static Color BlendOver(Color bottom, Color top)
     {
@@ -114,7 +129,12 @@ public class Canvas : IDisposable
 
     public void AddLayer()
     {
-        Layers.Add(new Layer($"Katman {Layers.Count + 1}", Width, Height));
+        int nextNum = Layers.Count + 1;
+        while (Layers.Exists(l => string.Equals(l.Name, $"Katman {nextNum}", StringComparison.OrdinalIgnoreCase)))
+        {
+            nextNum++;
+        }
+        Layers.Add(new Layer($"Katman {nextNum}", Width, Height));
         ActiveLayerIndex = Layers.Count - 1;
         Frames[ActiveFrameIndex].IsThumbnailDirty = true;
     }
@@ -154,20 +174,25 @@ public class Canvas : IDisposable
 
     public Color GetPixel(int x, int y)
     {
-        if (x < 0 || x >= Width || y < 0 || y >= Height || Layers.Count == 0) return TransparentColor;
+        if (Layers.Count == 0) return TransparentColor;
+        if (TileWrapMode) (x, y) = WrapCoord(x, y);
+        else if (x < 0 || x >= Width || y < 0 || y >= Height) return TransparentColor;
         return Layers[ActiveLayerIndex].GetPixel(x, y);
     }
 
-    public void SetPixel(int x, int y, Color color)
+    public void SetPixel(int x, int y, Color color, bool ignoreAlphaLock = false)
     {
-        if (x < 0 || x >= Width || y < 0 || y >= Height || Layers.Count == 0) return;
-        Layers[ActiveLayerIndex].SetPixel(x, y, color);
+        if (Layers.Count == 0) return;
+        if (TileWrapMode) (x, y) = WrapCoord(x, y);
+        else if (x < 0 || x >= Width || y < 0 || y >= Height) return;
+        Layers[ActiveLayerIndex].SetPixel(x, y, color, ignoreAlphaLock);
         Frames[ActiveFrameIndex].IsThumbnailDirty = true;
     }
 
     public Color GetMergedPixel(int x, int y)
     {
-        if (x < 0 || x >= Width || y < 0 || y >= Height) return TransparentColor;
+        if (TileWrapMode) (x, y) = WrapCoord(x, y);
+        else if (x < 0 || x >= Width || y < 0 || y >= Height) return TransparentColor;
         Color final = TransparentColor;
 
         for (int i = 0; i < Layers.Count; i++)
@@ -196,8 +221,15 @@ public class Canvas : IDisposable
 
     public bool IsMouseInside(Vector2 worldPos)
     {
-        return worldPos.X >= Offset.X && worldPos.X < Offset.X + Width * PixelScale &&
-               worldPos.Y >= Offset.Y && worldPos.Y < Offset.Y + Height * PixelScale;
+        int totalW = Width * PixelScale;
+        int totalH = Height * PixelScale;
+        if (TileWrapMode)
+        {
+            return worldPos.X >= Offset.X - totalW && worldPos.X < Offset.X + 2 * totalW &&
+                   worldPos.Y >= Offset.Y - totalH && worldPos.Y < Offset.Y + 2 * totalH;
+        }
+        return worldPos.X >= Offset.X && worldPos.X < Offset.X + totalW &&
+               worldPos.Y >= Offset.Y && worldPos.Y < Offset.Y + totalH;
     }
 
     public (int x, int y) ScreenToGrid(Vector2 worldPos)
@@ -215,6 +247,28 @@ public class Canvas : IDisposable
         int totalH = Height * PixelScale;
         Rectangle srcRect = new Rectangle(0, 0, Width, Height);
         Rectangle destRect = new Rectangle(Offset.X, Offset.Y, totalW, totalH);
+
+        Texture2D? mergedFrameTex = Frames.Count > 0 ? Frames[ActiveFrameIndex].GetOrUpdateThumbnail(Width, Height) : null;
+
+        // TILE / DOSEME (WRAP) MODU: 8 komşu karoyu merkez tuvalin etrafında canlı göster
+        if (TileWrapMode && mergedFrameTex.HasValue)
+        {
+            Color neighborCheckerTint = new Color((byte)145, (byte)150, (byte)162, (byte)175);
+            Color neighborSpriteTint = new Color((byte)230, (byte)235, (byte)245, (byte)185);
+            Color neighborBorderCol = new Color((byte)70, (byte)135, (byte)175, (byte)120);
+
+            for (int ty = -1; ty <= 1; ty++)
+            {
+                for (int tx = -1; tx <= 1; tx++)
+                {
+                    if (tx == 0 && ty == 0) continue;
+                    Rectangle nRect = new Rectangle(Offset.X + tx * totalW, Offset.Y + ty * totalH, totalW, totalH);
+                    Raylib.DrawTexturePro(checkerTexture, srcRect, nRect, Vector2.Zero, 0f, neighborCheckerTint);
+                    Raylib.DrawTexturePro(mergedFrameTex.Value, srcRect, nRect, Vector2.Zero, 0f, neighborSpriteTint);
+                    Raylib.DrawRectangleLinesEx(nRect, 1f, neighborBorderCol);
+                }
+            }
+        }
 
         Raylib.DrawRectangle((int)Offset.X + 6, (int)Offset.Y + 6, totalW, totalH, new Color(0, 0, 0, 110));
         Raylib.DrawTexturePro(checkerTexture, srcRect, destRect, Vector2.Zero, 0f, Color.White);
@@ -237,10 +291,9 @@ public class Canvas : IDisposable
             }
         }
 
-        if (Frames.Count > 0)
+        if (mergedFrameTex.HasValue)
         {
-            Texture2D mergedFrameTex = Frames[ActiveFrameIndex].GetOrUpdateThumbnail(Width, Height);
-            Raylib.DrawTexturePro(mergedFrameTex, srcRect, destRect, Vector2.Zero, 0f, Color.White);
+            Raylib.DrawTexturePro(mergedFrameTex.Value, srcRect, destRect, Vector2.Zero, 0f, Color.White);
         }
 
         if (ShowGrid)
@@ -252,7 +305,29 @@ public class Canvas : IDisposable
                 Raylib.DrawLine((int)Offset.X, (int)Offset.Y + y * PixelScale, (int)Offset.X + totalW, (int)Offset.Y + y * PixelScale, gridCol);
         }
 
-        Raylib.DrawRectangleLinesEx(new Rectangle(Offset.X - 1, Offset.Y - 1, totalW + 2, totalH + 2), 1f, new Color(90, 90, 100, 255));
+        // KARO IZGARASI (Tile Grid: 8x8, 16x16, 32x32)
+        int tileStep = AppSettings.TileGridSize;
+        if (tileStep > 0)
+        {
+            Color tileLineShadow = new Color((byte)0, (byte)0, (byte)0, (byte)155);
+            Color tileLineMain = new Color((byte)64, (byte)215, (byte)255, (byte)205);
+
+            for (int x = tileStep; x < Width; x += tileStep)
+            {
+                int lx = (int)Offset.X + x * PixelScale;
+                Raylib.DrawLine(lx + 1, (int)Offset.Y, lx + 1, (int)Offset.Y + totalH, tileLineShadow);
+                Raylib.DrawLine(lx, (int)Offset.Y, lx, (int)Offset.Y + totalH, tileLineMain);
+            }
+            for (int y = tileStep; y < Height; y += tileStep)
+            {
+                int ly = (int)Offset.Y + y * PixelScale;
+                Raylib.DrawLine((int)Offset.X, ly + 1, (int)Offset.X + totalW, ly + 1, tileLineShadow);
+                Raylib.DrawLine((int)Offset.X, ly, (int)Offset.X + totalW, ly, tileLineMain);
+            }
+        }
+
+        Color mainBorder = TileWrapMode ? new Color((byte)95, (byte)215, (byte)255, (byte)230) : new Color((byte)90, (byte)90, (byte)100, (byte)255);
+        Raylib.DrawRectangleLinesEx(new Rectangle(Offset.X - 1, Offset.Y - 1, totalW + 2, totalH + 2), TileWrapMode ? 1.5f : 1f, mainBorder);
     }
 
     public void Dispose()

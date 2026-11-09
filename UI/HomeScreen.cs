@@ -9,7 +9,7 @@ namespace PixelArtApp.UI;
 public class HomeScreen
 {
     private readonly List<string> recentFiles = new();
-    private readonly string recentFileStorePath = "recent_projects.txt";
+    private readonly string recentFileStorePath = Path.Combine(AppContext.BaseDirectory, "recent_projects.txt");
 
     public HomeScreen()
     {
@@ -55,8 +55,8 @@ public class HomeScreen
     {
         if (mousePos.Y < topY) return;
 
-        Rectangle newBtn = new Rectangle(80, topY + 120, 240, 52);
-        Rectangle openBtn = new Rectangle(80, topY + 188, 240, 52);
+        Rectangle newBtn = new Rectangle(80, topY + 125, 290, 56);
+        Rectangle openBtn = new Rectangle(80, topY + 193, 290, 56);
 
         if (Raylib.IsMouseButtonPressed(MouseButton.Left))
         {
@@ -71,14 +71,13 @@ public class HomeScreen
                 return;
             }
 
-            // Sağdaki Son Projeler Listesi
-            float recentX = 390;
-            float recentY = topY + 120;
-            float recentW = sw - recentX - 80;
+            float recentX = 410;
+            float recentY = topY + 125;
+            float recentW = Math.Max(280, sw - recentX - 70);
 
             for (int i = 0; i < recentFiles.Count; i++)
             {
-                Rectangle itemRect = new Rectangle(recentX, recentY + i * 44, recentW, 38);
+                Rectangle itemRect = new Rectangle(recentX, recentY + i * 46, recentW, 40);
                 if (Raylib.CheckCollisionPointRec(mousePos, itemRect))
                 {
                     if (File.Exists(recentFiles[i]))
@@ -93,74 +92,82 @@ public class HomeScreen
 
     public void Draw(int sw, int sh, float topY)
     {
-        Raylib.DrawRectangle(0, (int)topY, sw, sh - (int)topY, new Color(24, 24, 28, 255));
+        Raylib.DrawRectangle(0, (int)topY, sw, sh - (int)topY, PixelSkin.WindowBg);
 
-        // Başlık
-        Raylib.DrawText("PIXEL ART STUDIO", 80, (int)topY + 45, 28, Color.RayWhite);
-        Raylib.DrawText("v1.0 - Aseprite & Photoshop StilCalisma Alani", 80, (int)topY + 80, 13, Color.SkyBlue);
+        // Başlık ve 48x48 piksel logo
+        PixelIcons.DrawIcon("app_logo", 80, (int)topY + 38, 48f);
+        Raylib.DrawText("PIXEL ART STUDIO", 142, (int)topY + 42, 28, Color.RayWhite);
+        Raylib.DrawText("Aseprite & Photoshop Stil Piksel Sanati ve Animasyon Atolyesi", 144, (int)topY + 74, 13, PixelSkin.AccentCyan);
 
         Vector2 mousePos = Raylib.GetMousePosition();
 
-        // SOL BÖLÜM: Yeni Proje & Dosya Aç
-        Rectangle newBtn = new Rectangle(80, topY + 120, 240, 52);
-        Rectangle openBtn = new Rectangle(80, topY + 188, 240, 52);
+        Rectangle newBtn = new Rectangle(80, topY + 125, 290, 56);
+        Rectangle openBtn = new Rectangle(80, topY + 193, 290, 56);
 
-        DrawHomeButton(newBtn, "+  Yeni Proje Olustur", "Boyut ve arka plan secerek basla", new Color(45, 95, 150, 255), mousePos);
-        DrawHomeButton(openBtn, "   Dosya Ac / Ice Aktar", "PNG gorselini yeni sekmede ac", new Color(50, 50, 60, 255), mousePos);
+        DrawHomeButton(newBtn, "tool_pen", "+ Yeni Proje Olustur", "Tuval boyutu ve zemin sec", true, mousePos);
+        DrawHomeButton(openBtn, "tool_smartbucket", "Dosya Ac / Ice Aktar", ".loom veya PNG dosyasi ac", false, mousePos);
 
         // Kısayol Bilgi Kutusu
-       Rectangle infoBox = new Rectangle(80, topY + 270, 240, 170);
-Raylib.DrawRectangleRec(infoBox, new Color(30, 30, 35, 255));
-Raylib.DrawRectangleLinesEx(infoBox, 1, new Color(55, 55, 65, 255));
-Raylib.DrawText("Hizli Kisayollar:", (int)infoBox.X + 12, (int)infoBox.Y + 12, 13, Color.Yellow);
-Raylib.DrawText("Ctrl + N : Yeni Proje", (int)infoBox.X + 12, (int)infoBox.Y + 36, 12, Color.LightGray);
-Raylib.DrawText("Ctrl + O : Proje / Gorsel Ac", (int)infoBox.X + 12, (int)infoBox.Y + 56, 12, Color.LightGray);
-Raylib.DrawText("Ctrl + S : Projeyi Kaydet (.loom)", (int)infoBox.X + 12, (int)infoBox.Y + 76, 12, Color.LightGray);
-Raylib.DrawText("Ctrl+Shift+S : Farkli Kaydet", (int)infoBox.X + 12, (int)infoBox.Y + 96, 12, Color.LightGray);
-Raylib.DrawText("Ctrl + E : PNG Disa Aktar", (int)infoBox.X + 12, (int)infoBox.Y + 116, 12, Color.LightGray);
-Raylib.DrawText("Ctrl + W : Sekmeyi Kapat", (int)infoBox.X + 12, (int)infoBox.Y + 136, 12, Color.LightGray);
-        
+        Rectangle infoBox = new Rectangle(80, topY + 268, 290, 215);
+        PixelSkin.DrawInsetBox(infoBox);
+        Raylib.DrawText("STUDYO KISAYOLLARI", (int)infoBox.X + 14, (int)infoBox.Y + 12, 12, PixelSkin.AccentGold);
+        Raylib.DrawLine((int)infoBox.X + 12, (int)infoBox.Y + 28, (int)(infoBox.X + infoBox.Width - 12), (int)infoBox.Y + 28, PixelSkin.PanelBorderLight);
+
+        DrawShortcutRow(infoBox.X + 14, infoBox.Y + 38, "Ctrl + N", "Yeni Proje");
+        DrawShortcutRow(infoBox.X + 14, infoBox.Y + 58, "Ctrl + O", "Proje / Gorsel Ac");
+        DrawShortcutRow(infoBox.X + 14, infoBox.Y + 78, "Ctrl + S", "Projeyi Kaydet (.loom)");
+        DrawShortcutRow(infoBox.X + 14, infoBox.Y + 98, "Ctrl + E", "PNG / GIF / Sheet Aktar");
+        DrawShortcutRow(infoBox.X + 14, infoBox.Y + 118, "P / S / A / T / G", "Asistanlar & Karo");
+        DrawShortcutRow(infoBox.X + 14, infoBox.Y + 138, "1..5, D,H,C,L,U,M", "Cizim Araclari");
+        DrawShortcutRow(infoBox.X + 14, infoBox.Y + 158, "Alt + Tik", "Hizli Damlalik");
+        DrawShortcutRow(infoBox.X + 14, infoBox.Y + 178, "Orta Tus", "Tuvali Kaydir (Pan)");
 
         // SAĞ BÖLÜM: Son Açılan Projeler (Recent Projects)
-        float recentX = 390;
-        float recentY = topY + 120;
-        float recentW = Math.Max(300, sw - recentX - 80);
+        float recentX = 410;
+        float recentY = topY + 125;
+        float recentW = Math.Max(280, sw - recentX - 70);
 
-        Raylib.DrawText("SON ACILAN PROJELER (RECENT)", (int)recentX, (int)recentY - 30, 15, Color.SkyBlue);
-        Raylib.DrawLine((int)recentX, (int)recentY - 10, (int)(recentX + recentW), (int)recentY - 10, Color.DarkGray);
+        Raylib.DrawText("SON ACILAN PROJELER (RECENT)", (int)recentX, (int)recentY - 26, 14, PixelSkin.AccentGold);
+        Raylib.DrawLine((int)recentX, (int)recentY - 8, (int)(recentX + recentW), (int)recentY - 8, PixelSkin.PanelBorderLight);
 
         if (recentFiles.Count == 0)
         {
-            Raylib.DrawRectangle((int)recentX, (int)recentY, (int)recentW, 120, new Color(30, 30, 35, 255));
-            Raylib.DrawText("Henuz acilmis veya kaydedilmis bir proje yok.", (int)recentX + 20, (int)recentY + 50, 14, Color.Gray);
+            Rectangle emptyBox = new Rectangle(recentX, recentY, recentW, 130);
+            PixelSkin.DrawInsetBox(emptyBox);
+            PixelIcons.DrawIcon("tool_pen", recentX + 20, recentY + 46, 32f);
+            Raylib.DrawText("Henuz acilmis veya kaydedilmis bir proje yok.", (int)recentX + 64, (int)recentY + 46, 13, PixelSkin.TextPrimary);
+            Raylib.DrawText("Sol taraftan '+ Yeni Proje Olustur' ile baslayabilirsin.", (int)recentX + 64, (int)recentY + 68, 12, PixelSkin.TextMuted);
         }
         else
         {
             for (int i = 0; i < recentFiles.Count; i++)
             {
-                Rectangle itemRect = new Rectangle(recentX, recentY + i * 44, recentW, 38);
+                Rectangle itemRect = new Rectangle(recentX, recentY + i * 46, recentW, 40);
                 bool hover = Raylib.CheckCollisionPointRec(mousePos, itemRect);
 
-                Raylib.DrawRectangleRec(itemRect, hover ? new Color(45, 55, 70, 255) : new Color(32, 32, 38, 255));
-                Raylib.DrawRectangleLinesEx(itemRect, 1, hover ? Color.SkyBlue : new Color(50, 50, 58, 255));
+                PixelSkin.DrawButton(itemRect, hover, false);
+                PixelIcons.DrawIcon("app_logo", itemRect.X + 10, itemRect.Y + 12, 16f);
 
                 string fileName = Path.GetFileName(recentFiles[i]);
-                Raylib.DrawText(fileName, (int)itemRect.X + 14, (int)itemRect.Y + 6, 14, Color.White);
-                Raylib.DrawText(recentFiles[i], (int)itemRect.X + 14, (int)itemRect.Y + 22, 10, Color.Gray);
+                Raylib.DrawText(fileName, (int)itemRect.X + 34, (int)itemRect.Y + 6, 14, hover ? PixelSkin.AccentGold : Color.White);
+                Raylib.DrawText(recentFiles[i], (int)itemRect.X + 34, (int)itemRect.Y + 23, 10, PixelSkin.TextMuted);
             }
         }
     }
 
-    private void DrawHomeButton(Rectangle rect, string title, string subtitle, Color baseCol, Vector2 mousePos)
+    private void DrawShortcutRow(float x, float y, string key, string desc)
+    {
+        Raylib.DrawText(key, (int)x, (int)y, 11, PixelSkin.AccentCyan);
+        Raylib.DrawText(desc, (int)x + 102, (int)y, 11, PixelSkin.TextPrimary);
+    }
+
+    private void DrawHomeButton(Rectangle rect, string iconName, string title, string subtitle, bool primary, Vector2 mousePos)
     {
         bool hover = Raylib.CheckCollisionPointRec(mousePos, rect);
-        Color col = hover
-            ? new Color((byte)Math.Min(255, baseCol.R + 25), (byte)Math.Min(255, baseCol.G + 25), (byte)Math.Min(255, baseCol.B + 25), (byte)255)
-            : baseCol;
+        PixelSkin.DrawButton(rect, hover, primary);
 
-        Raylib.DrawRectangleRec(rect, col);
-        Raylib.DrawRectangleLinesEx(rect, 1, hover ? Color.SkyBlue : Color.Gray);
-        Raylib.DrawText(title, (int)rect.X + 14, (int)rect.Y + 10, 15, Color.White);
-        Raylib.DrawText(subtitle, (int)rect.X + 14, (int)rect.Y + 30, 11, Color.LightGray);
+        PixelIcons.DrawIcon(iconName, rect.X + 12, rect.Y + 12, 32f);
+        Raylib.DrawText(title, (int)rect.X + 54, (int)rect.Y + 11, 14, Color.White);
+        Raylib.DrawText(subtitle, (int)rect.X + 54, (int)rect.Y + 31, 11, primary ? new Color((byte)220, (byte)242, (byte)230, (byte)255) : PixelSkin.TextMuted);
     }
 }

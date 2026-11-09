@@ -14,9 +14,12 @@ partial class Program
 {
     static void SwitchToTab(int newIndex)
     {
+        animationPanel.Stop();
+        ResetCurveState();
         if (ActiveTab != null)
         {
             ActiveTab.Selection.CancelOrCommit(ActiveTab.Canvas);
+        ResetCurveState();
             ActiveTab.Fps = animationPanel.Fps;
         }
 
@@ -27,6 +30,7 @@ partial class Program
             targetZoom = ZoomLevels[ActiveTab.ZoomIndex];
             animationPanel.Fps = ActiveTab.Fps;
             isGridVisible = ActiveTab.Canvas.ShowGrid;
+            ActiveTab.Canvas.TileWrapMode = isTileWrapEnabled;
         }
     }
 
@@ -103,10 +107,13 @@ partial class Program
     {
         if (index < 0 || index >= tabs.Count) return;
 
+        animationPanel.Stop();
+        ResetCurveState();
         bool wasActive = (index == activeTabIndex);
         if (ActiveTab != null && !wasActive)
         {
             ActiveTab.Selection.CancelOrCommit(ActiveTab.Canvas);
+        ResetCurveState();
             ActiveTab.Fps = animationPanel.Fps;
         }
 
@@ -133,6 +140,7 @@ partial class Program
             targetZoom = ZoomLevels[ActiveTab.ZoomIndex];
             animationPanel.Fps = ActiveTab.Fps;
             isGridVisible = ActiveTab.Canvas.ShowGrid;
+            ActiveTab.Canvas.TileWrapMode = isTileWrapEnabled;
         }
     }
 
@@ -234,7 +242,7 @@ partial class Program
 
             for (int x = 0; x < w; x++)
                 for (int y = 0; y < h; y++)
-                    newTab.Canvas.SetPixel(x, y, Raylib.GetImageColor(img, x, y));
+                    newTab.Canvas.SetPixel(x, y, Raylib.GetImageColor(img, x, y), ignoreAlphaLock: true);
 
             newTab.IsDirty = false;
 
@@ -257,8 +265,16 @@ partial class Program
     {
         if (ActiveTab != null && toolManager.ActiveTool == ToolType.SelectMove && newTool != ToolType.SelectMove)
             ActiveTab.Selection.CancelOrCommit(ActiveTab.Canvas);
+        ResetCurveState();
         toolManager.ActiveTool = newTool;
         sizeInputActive = false;
+    }
+
+    static void ResetCurveState()
+    {
+        curveStartPos = null;
+        curveEndPos = null;
+        isCurveAwaitingControl = false;
     }
 
     static void ToggleGrid()
@@ -272,6 +288,7 @@ partial class Program
     {
         if (ActiveTab == null) return;
         ActiveTab.Selection.CancelOrCommit(ActiveTab.Canvas);
+        ResetCurveState();
         ActiveTab.History.SaveState(ActiveTab.Canvas);
         ActiveTab.Canvas.Clear(Canvas.TransparentColor);
         ShowStatus("Tuval temizlendi.");

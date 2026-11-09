@@ -50,6 +50,7 @@ public class Layer : IDisposable
             {
                 isVisible = value;
                 IsDirty = true;
+                FrameCompositeDirty = true;
                 VisibilityChanged = true;
             }
         }
@@ -65,12 +66,16 @@ public class Layer : IDisposable
             {
                 opacity = value;
                 IsDirty = true;
+                FrameCompositeDirty = true;
                 VisibilityChanged = true;
             }
         }
     }
 
+    public bool AlphaLock { get; set; } = false;
+
     public bool IsDirty { get; set; } = true;
+    internal bool FrameCompositeDirty { get; set; } = true;
     internal bool VisibilityChanged { get; set; } = true;
 
     private Texture2D cachedTexture;
@@ -85,7 +90,7 @@ public class Layer : IDisposable
         buffer = new PixelBuffer(width, height);
     }
 
-    private Layer(string name, PixelBuffer sharedBuffer, bool visible, byte layerOpacity)
+    private Layer(string name, PixelBuffer sharedBuffer, bool visible, byte layerOpacity, bool alphaLock)
     {
         Name = name;
         Width = sharedBuffer.Data.GetLength(0);
@@ -94,7 +99,9 @@ public class Layer : IDisposable
         buffer.RefCount++;
         isVisible = visible;
         opacity = layerOpacity;
+        AlphaLock = alphaLock;
         IsDirty = true;
+        FrameCompositeDirty = true;
         VisibilityChanged = true;
     }
 
@@ -104,20 +111,19 @@ public class Layer : IDisposable
         return buffer.Data[x, y];
     }
 
-    public void SetPixel(int x, int y, Color color)
+    public void SetPixel(int x, int y, Color color, bool ignoreAlphaLock = false)
     {
         if (x < 0 || x >= Width || y < 0 || y >= Height) return;
+        if (AlphaLock && !ignoreAlphaLock)
+        {
+            Color existing = buffer.Data[x, y];
+            if (existing.A == 0 || color.A == 0) return;
+            color = new Color(color.R, color.G, color.B, existing.A);
+        }
         EnsureUniquePixels();
         buffer.Data[x, y] = color;
         IsDirty = true;
-    }
-
-    public void SetPixelDirect(int x, int y, Color color)
-    {
-        if (x < 0 || x >= Width || y < 0 || y >= Height) return;
-        EnsureUniquePixels();
-        buffer.Data[x, y] = color;
-        IsDirty = true;
+        FrameCompositeDirty = true;
     }
 
     public void Fill(Color color)
@@ -127,6 +133,7 @@ public class Layer : IDisposable
             for (int y = 0; y < Height; y++)
                 buffer.Data[x, y] = color;
         IsDirty = true;
+        FrameCompositeDirty = true;
     }
 
     public void EnsureUniquePixels()
@@ -174,7 +181,7 @@ public class Layer : IDisposable
 
     public Layer Clone()
     {
-        return new Layer(Name, this.buffer, this.isVisible, this.opacity);
+        return new Layer(Name, this.buffer, this.isVisible, this.opacity, this.AlphaLock);
     }
 
     public void Dispose()

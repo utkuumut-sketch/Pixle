@@ -64,7 +64,7 @@ public class ProjectTab
         History.OnStateChanged = () => isDirty = true;
 
         Selection = new SelectionManager();
-        Selection.EnsureSize(width, height);
+
 
         MarkSaved();
     }
@@ -105,6 +105,7 @@ public class ProjectTab
                 var layer = frame.Layers[l];
                 hc.Add(layer.Name);
                 hc.Add(layer.IsVisible);
+                hc.Add(layer.AlphaLock);
                 hc.Add(layer.Opacity);
             }
         }

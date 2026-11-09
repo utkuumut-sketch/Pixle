@@ -23,8 +23,9 @@ public static class AppSettings
     public static bool ShowPanelBackdrops { get; set; } = true;
     public static bool EnableOnionSkin { get; set; } = false;
     public static bool EnablePanelResize { get; set; } = false;
-    public static int LeftPanelWidth { get; set; } = 145;
+    public static int LeftPanelWidth { get; set; } = 92;
     public static int RightPanelWidth { get; set; } = 180;
+    public static bool ShowReferencePanel { get; set; } = true;
 
     // GORUNUM VE PERFORMANS / ANIMASYON AYARLARI
     public static bool EnableUIAnimations { get; set; } = true;
@@ -37,6 +38,7 @@ public static class AppSettings
     public static bool ShowBrushPreview { get; set; } = true;
     public static int OnionSkinOpacity { get; set; } = 100; // 25 - 225 arasi
     public static int GridOpacity { get; set; } = 45;       // 15 - 165 arasi
+    public static int TileGridSize { get; set; } = 0;       // 0: Kapali, 8: 8x8, 16: 16x16, 32: 32x32
     public static int CheckerContrast { get; set; } = 1;    // 0: Dusuk, 1: Orta, 2: Yuksek (Standart: 1)
     public static int BlurIntensity { get; set; } = 2;      // 1 - 5 arasi
     public static int JumbleIntensity { get; set; } = 50;   // %10 - %100 arasi
@@ -44,16 +46,43 @@ public static class AppSettings
     // KISAYOLLAR
     public static KeyboardKey KeyPen { get; set; } = KeyboardKey.One;
     public static KeyboardKey KeyEraser { get; set; } = KeyboardKey.Two;
+    public static KeyboardKey KeyDither { get; set; } = KeyboardKey.D;
+    public static KeyboardKey KeyShading { get; set; } = KeyboardKey.H;
     public static KeyboardKey KeyBucket { get; set; } = KeyboardKey.Three;
     public static KeyboardKey KeySmartBucket { get; set; } = KeyboardKey.Four;
     public static KeyboardKey KeyEyedropper { get; set; } = KeyboardKey.Five;
     public static KeyboardKey KeyBlur { get; set; } = KeyboardKey.R;
     public static KeyboardKey KeyJumble { get; set; } = KeyboardKey.J;
     public static KeyboardKey KeyLine { get; set; } = KeyboardKey.L;
+    public static KeyboardKey KeyCurve { get; set; } = KeyboardKey.C;
     public static KeyboardKey KeyShape { get; set; } = KeyboardKey.U;
     public static KeyboardKey KeySelectMove { get; set; } = KeyboardKey.M;
     public static KeyboardKey KeyToggleAnimPanel { get; set; } = KeyboardKey.Up;
     public static KeyboardKey KeyToggleLayers { get; set; } = KeyboardKey.Down;
+    public static KeyboardKey KeyPixelPerfect { get; set; } = KeyboardKey.P;
+    public static KeyboardKey KeySymmetry { get; set; } = KeyboardKey.S;
+    public static KeyboardKey KeyAlphaLock { get; set; } = KeyboardKey.A;
+    public static KeyboardKey KeyTileWrap { get; set; } = KeyboardKey.T;
+    public static KeyboardKey KeyTileGrid { get; set; } = KeyboardKey.G;
+
+    public static void CycleTileGridSize()
+    {
+        TileGridSize = TileGridSize switch
+        {
+            0 => 8,
+            8 => 16,
+            16 => 32,
+            _ => 0
+        };
+    }
+
+    public static string TileGridLabel(int size) => size switch
+    {
+        8 => "8x8 px",
+        16 => "16x16 px",
+        32 => "32x32 px",
+        _ => "Kapali"
+    };
 
     public static KeyboardKey[] KeyColors { get; set; } = new KeyboardKey[20];
 
@@ -61,9 +90,6 @@ public static class AppSettings
     {
         CurrentPreset = preset;
 
-        // NOT: Canvas arka plan rengi/doygunlugu (CheckerContrast), Izgara rengi ve Tema
-        // hicbir performans modunda degistirilmez, standart kalir.
-        // Ayrica hangi profil secilirse secilsin TargetFPS varsayilan olarak Sinirsiz (0) gelir.
         switch (preset)
         {
             case PerformancePreset.Varsayilan:
@@ -72,7 +98,7 @@ public static class AppSettings
                 SmoothCameraZoom = true;
                 ShowPanelBackdrops = true;
                 ShowBrushPreview = true;
-                TargetFPS = 0; // Sinirsiz
+                TargetFPS = 0;
                 break;
 
             case PerformancePreset.Kalite:
@@ -81,7 +107,7 @@ public static class AppSettings
                 SmoothCameraZoom = true;
                 ShowPanelBackdrops = true;
                 ShowBrushPreview = true;
-                TargetFPS = 0; // Sinirsiz
+                TargetFPS = 0;
                 break;
 
             case PerformancePreset.Performans:
@@ -89,7 +115,7 @@ public static class AppSettings
                 SmoothCameraZoom = false;
                 ShowPanelBackdrops = false;
                 ShowBrushPreview = false;
-                TargetFPS = 0; // Sinirsiz
+                TargetFPS = 0;
                 break;
         }
 
@@ -103,7 +129,7 @@ public static class AppSettings
 
     public static void ResetToDefaults()
     {
-        LeftPanelWidth = 145;
+        LeftPanelWidth = 92;
         RightPanelWidth = 180;
         MaxUndoSteps = 50;
         IsLightTheme = false;
@@ -113,6 +139,7 @@ public static class AppSettings
 
         CheckerContrast = 1;
         GridOpacity = 45;
+        TileGridSize = 0;
         OnionSkinOpacity = 100;
         BlurIntensity = 2;
         JumbleIntensity = 50;
@@ -121,25 +148,31 @@ public static class AppSettings
 
         KeyPen = KeyboardKey.One;
         KeyEraser = KeyboardKey.Two;
+        KeyDither = KeyboardKey.D;
+        KeyShading = KeyboardKey.H;
         KeyBucket = KeyboardKey.Three;
         KeySmartBucket = KeyboardKey.Four;
         KeyEyedropper = KeyboardKey.Five;
         KeyBlur = KeyboardKey.R;
         KeyJumble = KeyboardKey.J;
         KeyLine = KeyboardKey.L;
+        KeyCurve = KeyboardKey.C;
         KeyShape = KeyboardKey.U;
         KeySelectMove = KeyboardKey.M;
         KeyToggleAnimPanel = KeyboardKey.Up;
         KeyToggleLayers = KeyboardKey.Down;
+        KeyPixelPerfect = KeyboardKey.P;
+        KeySymmetry = KeyboardKey.S;
+        KeyAlphaLock = KeyboardKey.A;
+        KeyTileWrap = KeyboardKey.T;
+        KeyTileGrid = KeyboardKey.G;
+        ShowReferencePanel = true;
         
         for (int i = 0; i < KeyColors.Length; i++)
         {
             KeyColors[i] = KeyboardKey.Null;
         }
     }
-
-    public static Color BgColor => IsLightTheme ? new Color(210, 210, 215, 255) : new Color(22, 22, 22, 255);
-    public static Color PanelColor => IsLightTheme ? new Color(235, 235, 240, 255) : new Color(30, 30, 30, 255);
 
     public static string KeyToString(KeyboardKey key)
     {
