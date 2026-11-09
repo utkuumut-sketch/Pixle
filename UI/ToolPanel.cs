@@ -11,6 +11,8 @@ public class ToolPanel
     public float Width { get; set; } = 92f;
     public float TopOffset { get; }
 
+    private float scrollY = 0f;
+
     private readonly List<(string Name, Func<KeyboardKey> GetKey, ToolType Tool)> tools = new()
     {
         ("Kalem", () => AppSettings.KeyPen, ToolType.Pen),
@@ -79,7 +81,7 @@ public class ToolPanel
         int col = index % cols;
         float totalRowW = cols * BtnSize + (cols - 1) * BtnGap;
         float startX = MathF.Round((Width - totalRowW) / 2f);
-        float startY = TopOffset + 23f;
+        float startY = TopOffset + 23f - scrollY;
 
         return new Rectangle(
             startX + col * (BtnSize + BtnGap),
@@ -93,7 +95,7 @@ public class ToolPanel
     {
         int cols = GetColumns();
         int rows = (int)Math.Ceiling(tools.Count / (float)cols);
-        return TopOffset + 23f + rows * (BtnSize + BtnGap);
+        return TopOffset + 23f - scrollY + rows * (BtnSize + BtnGap);
     }
 
     private Rectangle GetAssistantSlotRect(int index)
@@ -137,6 +139,26 @@ public class ToolPanel
         );
     }
 
+    private float GetTotalContentHeight(ToolType activeTool)
+    {
+        int cols = GetColumns();
+        int toolRows = (int)Math.Ceiling(tools.Count / (float)cols);
+        int assistRows = (int)Math.Ceiling(4 / (float)cols);
+        int subCount = activeTool switch
+        {
+            ToolType.Dither => ditherPatterns.Count,
+            ToolType.Shading => shadingModes.Count,
+            ToolType.Shape => shapes.Count,
+            ToolType.SelectMove => selectionModes.Count,
+            _ => 0
+        };
+        int subRows = subCount > 0 ? (int)Math.Ceiling(subCount / (float)cols) : 0;
+        float h = (toolRows + assistRows) * (BtnSize + BtnGap) + 20f;
+        if (subRows > 0)
+            h += 18f + subRows * (BtnSize + BtnGap);
+        return h + 12f;
+    }
+
     public bool Update(
         Vector2 mousePos,
         Action<ToolType> onSelectTool,
@@ -150,9 +172,19 @@ public class ToolPanel
         Action? onToggleAlphaLock = null,
         Action? onToggleTileWrap = null)
     {
+        float availH = Math.Max(80f, Raylib.GetScreenHeight() - TopOffset - 23f);
+        float maxScroll = Math.Max(0f, GetTotalContentHeight(currentActiveTool) - availH);
+        scrollY = Math.Clamp(scrollY, 0f, maxScroll);
+
         if (mousePos.X > Width || mousePos.Y < TopOffset) return false;
 
-        if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+        float wheel = Raylib.GetMouseWheelMove();
+        if (wheel != 0f && maxScroll > 0f)
+        {
+            scrollY = Math.Clamp(scrollY - wheel * 28f, 0f, maxScroll);
+        }
+
+        if (Raylib.IsMouseButtonPressed(MouseButton.Left) && mousePos.Y >= TopOffset + 20f)
         {
             for (int i = 0; i < tools.Count; i++)
             {
@@ -258,12 +290,16 @@ public class ToolPanel
         Vector2 mousePos = Raylib.GetMousePosition();
         (Vector2 pos, string title, string? key)? activeTooltip = null;
 
+        int clipTop = (int)TopOffset + 20;
+        int clipH = Math.Max(1, screenHeight - clipTop);
+        Raylib.BeginScissorMode(0, clipTop, (int)Width, clipH);
+
         // 1. ANA ARAC IKONLARI (Tam 32x32 piksel olcegi)
         for (int i = 0; i < tools.Count; i++)
         {
             Rectangle btnRect = GetToolSlotRect(i);
             bool isSelected = tools[i].Tool == activeTool;
-            bool isHover = Raylib.CheckCollisionPointRec(mousePos, btnRect);
+            bool isHover = mousePos.Y >= clipTop && Raylib.CheckCollisionPointRec(mousePos, btnRect);
 
             PixelSkin.DrawButton(btnRect, isHover, isSelected);
 
@@ -296,7 +332,7 @@ public class ToolPanel
         Raylib.DrawLine(6, divY + 1, (int)Width - 6, divY + 1, PixelSkin.BevelLight);
 
         // 2a. Pixel-Perfect
-        bool ppHover = Raylib.CheckCollisionPointRec(mousePos, ppRect);
+        bool ppHover = mousePos.Y >= clipTop && Raylib.CheckCollisionPointRec(mousePos, ppRect);
         PixelSkin.DrawButton(ppRect, ppHover, pixelPerfect);
         PixelIcons.DrawIcon("assist_pixelperfect", ppRect.X + 2, ppRect.Y + 2, 32f);
         if (pixelPerfect)
@@ -309,7 +345,7 @@ public class ToolPanel
 
         // 2b. Simetri
         bool symActive = symmetry != SymmetryMode.None;
-        bool symHover = Raylib.CheckCollisionPointRec(mousePos, symRect);
+        bool symHover = mousePos.Y >= clipTop && Raylib.CheckCollisionPointRec(mousePos, symRect);
         PixelSkin.DrawButton(symRect, symHover, symActive);
         PixelIcons.DrawIcon("assist_symmetry", symRect.X + 2, symRect.Y + 2, 32f);
         if (symActive)
@@ -330,7 +366,7 @@ public class ToolPanel
         }
 
         // 2c. Alfa Kilidi (Alpha Lock)
-        bool lockHover = Raylib.CheckCollisionPointRec(mousePos, lockRect);
+        bool lockHover = mousePos.Y >= clipTop && Raylib.CheckCollisionPointRec(mousePos, lockRect);
         PixelSkin.DrawButton(lockRect, lockHover, alphaLock);
         PixelIcons.DrawIcon("assist_alphalock", lockRect.X + 2, lockRect.Y + 2, 32f);
         if (alphaLock)
@@ -342,7 +378,7 @@ public class ToolPanel
         }
 
         // 2d. Tile / Doseme (Wrap) Modu
-        bool tileHover = Raylib.CheckCollisionPointRec(mousePos, tileRect);
+        bool tileHover = mousePos.Y >= clipTop && Raylib.CheckCollisionPointRec(mousePos, tileRect);
         PixelSkin.DrawButton(tileRect, tileHover, tileWrap);
         PixelIcons.DrawIcon("assist_tilewrap", tileRect.X + 2, tileRect.Y + 2, 32f);
         if (tileWrap)
@@ -374,7 +410,7 @@ public class ToolPanel
                 {
                     Rectangle sRect = GetSubModeSlotRect(i);
                     bool isSel = ditherPatterns[i].Pattern == activeDither;
-                    bool isHov = Raylib.CheckCollisionPointRec(mousePos, sRect);
+                    bool isHov = mousePos.Y >= clipTop && Raylib.CheckCollisionPointRec(mousePos, sRect);
 
                     PixelSkin.DrawButton(sRect, isHov, isSel);
                     PixelIcons.DrawIcon(PixelIcons.GetDitherIconKey(ditherPatterns[i].Pattern), sRect.X + 2, sRect.Y + 2, 32f);
@@ -389,7 +425,7 @@ public class ToolPanel
                 {
                     Rectangle sRect = GetSubModeSlotRect(i);
                     bool isSel = shadingModes[i].Mode == activeShading;
-                    bool isHov = Raylib.CheckCollisionPointRec(mousePos, sRect);
+                    bool isHov = mousePos.Y >= clipTop && Raylib.CheckCollisionPointRec(mousePos, sRect);
 
                     PixelSkin.DrawButton(sRect, isHov, isSel);
                     PixelIcons.DrawIcon(PixelIcons.GetShadingModeIconKey(shadingModes[i].Mode), sRect.X + 2, sRect.Y + 2, 32f);
@@ -404,7 +440,7 @@ public class ToolPanel
                 {
                     Rectangle sRect = GetSubModeSlotRect(i);
                     bool isSel = shapes[i].Shape == activeShape;
-                    bool isHov = Raylib.CheckCollisionPointRec(mousePos, sRect);
+                    bool isHov = mousePos.Y >= clipTop && Raylib.CheckCollisionPointRec(mousePos, sRect);
 
                     PixelSkin.DrawButton(sRect, isHov, isSel);
                     PixelIcons.DrawIcon(PixelIcons.GetShapeIconKey(shapes[i].Shape), sRect.X + 2, sRect.Y + 2, 32f);
@@ -419,7 +455,7 @@ public class ToolPanel
                 {
                     Rectangle sRect = GetSubModeSlotRect(i);
                     bool isSel = selectionModes[i].Mode == activeSelMode;
-                    bool isHov = Raylib.CheckCollisionPointRec(mousePos, sRect);
+                    bool isHov = mousePos.Y >= clipTop && Raylib.CheckCollisionPointRec(mousePos, sRect);
 
                     PixelSkin.DrawButton(sRect, isHov, isSel);
                     PixelIcons.DrawIcon(PixelIcons.GetSelectionModeIconKey(selectionModes[i].Mode), sRect.X + 2, sRect.Y + 2, 32f);
@@ -430,7 +466,20 @@ public class ToolPanel
             }
         }
 
-        // Hover Ipucu Kutusu (Tooltip)
+        // Eger sol panel kucuk ekranda kaydirilabiliyorsa ince kaydirma cubugu ciz
+        float availH = Math.Max(80f, screenHeight - TopOffset - 23f);
+        float totalH = GetTotalContentHeight(activeTool);
+        float maxScroll = Math.Max(0f, totalH - availH);
+        if (maxScroll > 0f)
+        {
+            float thumbH = Math.Max(24f, (availH / totalH) * (availH - 8f));
+            float thumbY = clipTop + 4f + (scrollY / maxScroll) * (availH - 8f - thumbH);
+            Raylib.DrawRectangle((int)Width - 4, (int)thumbY, 2, (int)thumbH, PixelSkin.AccentPrimary);
+        }
+
+        Raylib.EndScissorMode();
+
+        // Hover Ipucu Kutusu (Tooltip) - Scissor disinda cizilir ki kirpilmasin
         if (activeTooltip.HasValue)
         {
             PixelSkin.DrawTooltip(activeTooltip.Value.pos, activeTooltip.Value.title, activeTooltip.Value.key);

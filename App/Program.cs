@@ -77,7 +77,7 @@ partial class Program
     {
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
         Raylib.InitWindow(1080, 740, "Pixel Art Studio");
-        Raylib.SetWindowMinSize(760, 520);
+        Raylib.SetWindowMinSize(900, 580);
 
         Raylib.SetTargetFPS(AppSettings.TargetFPS);
         Raylib.SetExitKey(KeyboardKey.Null);
@@ -150,6 +150,27 @@ partial class Program
             items.Add(new MenuItem("Kes (Ctrl+X)", () => { if (ActiveTab != null) ActiveTab.Selection.Cut(ActiveTab.Canvas, ActiveTab.History); }));
             items.Add(new MenuItem("Yapistir (Ctrl+V)", () => { if (ActiveTab != null) { SelectTool(ToolType.SelectMove); ActiveTab.Selection.Paste(ActiveTab.Canvas, ActiveTab.History); } }));
             items.Add(new MenuItem("Cogalt (Ctrl+D)", () => { if (ActiveTab != null) ActiveTab.Selection.Duplicate(ActiveTab.Canvas, ActiveTab.History); }));
+            items.Add(new MenuItem("Aktif Katmani Birlestir", () =>
+            {
+                if (ActiveTab != null)
+                {
+                    ActiveTab.Selection.CancelOrCommit(ActiveTab.Canvas);
+                    ActiveTab.History.SaveState(ActiveTab.Canvas);
+                    ActiveTab.Canvas.MergeActiveLayer(out string msg);
+                    ActiveTab.IsDirty = true;
+                    ShowStatus(msg);
+                }
+            }));
+            items.Add(new MenuItem("Aktif Katmani Ayir (Split / Unmerge)", () =>
+            {
+                if (ActiveTab != null)
+                {
+                    ActiveTab.History.SaveState(ActiveTab.Canvas);
+                    ActiveTab.Canvas.SplitActiveLayer(ActiveTab.Selection, out string msg);
+                    ActiveTab.IsDirty = true;
+                    ShowStatus(msg);
+                }
+            }));
             items.Add(new MenuItem("Temizle", ClearCanvas));
             items.Add(new MenuItem("Ayarlar...", () => settingsDialog.Open()));
         });

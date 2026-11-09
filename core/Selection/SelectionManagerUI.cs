@@ -52,11 +52,25 @@ public partial class SelectionManager
                 {
                     if (mask[x, y] && floatingPixels[x, y].A > 0)
                     {
+                        int px = baseX + x;
+                        int py = baseY + y;
                         Raylib.DrawRectangle(
-                            (int)canvas.Offset.X + (baseX + x) * scale,
-                            (int)canvas.Offset.Y + (baseY + y) * scale,
+                            (int)canvas.Offset.X + px * scale,
+                            (int)canvas.Offset.Y + py * scale,
                             scale, scale, floatingPixels[x, y]
                         );
+                        if (canvas.TileWrapMode)
+                        {
+                            var (wx, wy) = canvas.WrapCoord(px, py);
+                            if (wx != px || wy != py)
+                            {
+                                Raylib.DrawRectangle(
+                                    (int)canvas.Offset.X + wx * scale,
+                                    (int)canvas.Offset.Y + wy * scale,
+                                    scale, scale, floatingPixels[x, y]
+                                );
+                            }
+                        }
                     }
                 }
             }

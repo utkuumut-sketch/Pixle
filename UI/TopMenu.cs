@@ -114,7 +114,7 @@ public class TopMenu
         return mouseOverBar;
     }
 
-    public void Draw(int screenWidth)
+    public void Draw(int screenWidth, string? statusText = null)
     {
         Vector2 mousePos = Raylib.GetMousePosition();
         Raylib.DrawRectangle(0, 0, screenWidth, (int)Height, PixelSkin.InsetDark);
@@ -123,6 +123,14 @@ public class TopMenu
 
         // Sol Ust Uygulama İkonu
         PixelIcons.DrawIcon("app_logo", 11, 10, 16f);
+
+        if (!string.IsNullOrWhiteSpace(statusText) && statusText != "Hazir")
+        {
+            int stW = Raylib.MeasureText(statusText, 12);
+            int maxRightX = screenWidth - 14;
+            int drawX = Math.Max(360, maxRightX - stW);
+            Raylib.DrawText(statusText, drawX, 12, 12, PixelSkin.AccentGold);
+        }
 
         for (int i = 0; i < categories.Count; i++)
         {

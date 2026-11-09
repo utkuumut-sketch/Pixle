@@ -45,8 +45,6 @@ public partial class SelectionManager
     private int clipWidth, clipHeight;
     private Vector2 clipOrigin;
 
-
-
     public bool IsPointInCurrentSelection(int gx, int gy)
     {
         if (!HasSelection) return false;
@@ -133,6 +131,9 @@ public partial class SelectionManager
     public void StartSelection(Canvas canvas, int gx, int gy, SelectToolMode mode, bool isAdd = false, bool isSubtract = false)
     {
         if (IsFloating) CancelOrCommit(canvas);
+
+        if (canvas.TileWrapMode)
+            (gx, gy) = canvas.WrapCoord(gx, gy);
 
         if (mode == SelectToolMode.MagicWand)
         {
@@ -366,6 +367,53 @@ public partial class SelectionManager
         IsFloating = true;
     }
 
+    public bool ExtractSelectionToNewLayer(Canvas canvas, out Layer? extractedLayer)
+    {
+        extractedLayer = null;
+        if (!HasSelection) return false;
+
+        if (!IsFloating)
+        {
+            LiftSelection(canvas);
+        }
+
+        Layer newLayer = new Layer("Secim Katmani", canvas.Width, canvas.Height);
+        int destStartX = (int)Math.Round(Bounds.X + Offset.X);
+        int destStartY = (int)Math.Round(Bounds.Y + Offset.Y);
+        int bw = mask.GetLength(0), bh = mask.GetLength(1);
+        bool anyCopied = false;
+
+        for (int x = 0; x < bw; x++)
+        {
+            for (int y = 0; y < bh; y++)
+            {
+                if (mask[x, y] && floatingPixels[x, y].A > 0)
+                {
+                    int tx = destStartX + x;
+                    int ty = destStartY + y;
+                    if (canvas.TileWrapMode)
+                        (tx, ty) = canvas.WrapCoord(tx, ty);
+
+                    if (tx >= 0 && tx < canvas.Width && ty >= 0 && ty < canvas.Height)
+                    {
+                        newLayer.SetPixel(tx, ty, floatingPixels[x, y], ignoreAlphaLock: true);
+                        anyCopied = true;
+                    }
+                }
+            }
+        }
+
+        ResetSelectionState();
+        if (!anyCopied)
+        {
+            newLayer.Dispose();
+            return false;
+        }
+
+        extractedLayer = newLayer;
+        return true;
+    }
+
     private void ResetSelectionState()
     {
         IsFloating = false;
@@ -400,6 +448,9 @@ public partial class SelectionManager
                     if (mask[x, y] && floatingPixels[x, y].A > 0)
                     {
                         int tx = destStartX + x, ty = destStartY + y;
+                        if (canvas.TileWrapMode)
+                            (tx, ty) = canvas.WrapCoord(tx, ty);
+
                         if (tx >= 0 && tx < w && ty >= 0 && ty < h)
                         {
                             Color blended = Canvas.BlendOver(canvas.GetPixel(tx, ty), floatingPixels[x, y]);

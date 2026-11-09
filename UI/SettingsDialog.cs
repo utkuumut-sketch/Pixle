@@ -10,7 +10,7 @@ namespace PixelArtApp.UI;
 public class SettingsDialog
 {
     public bool IsOpen { get; private set; } = false;
-    private Rectangle windowRect = new Rectangle(0, 0, 780, 560);
+    private Rectangle windowRect = new Rectangle(0, 0, 780, 600);
     private int activeCategory = 0;
     private bool justOpened = false;
 
@@ -27,7 +27,7 @@ public class SettingsDialog
     private const float FooterH = 52f;
     private const int GeneralRowH = 54;
     private const int PerfRowCount = 13;
-    private const int PerfRowHeight = 44;
+    private const int PerfRowHeight = 40;
     private const int ShortcutRowH = 38;
 
     private readonly (string Title, string Sub, string Icon)[] categories =

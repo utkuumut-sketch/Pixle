@@ -110,7 +110,20 @@ partial class Program
         );
         Rectangle refBounds = GetRightSidebarRefBounds(sw, sh);
         bool refIntercepted = refManager.UpdateUI(mouseScreenPos, refBounds);
-        bool layerPanelIntercepted = layerPanel.Update(canvas, history, mouseScreenPos, sw, sh, () => { selection.CancelOrCommit(canvas); ActiveTab.IsDirty = true; ShowStatus($"Aktif Katman: {canvas.Layers[canvas.ActiveLayerIndex].Name}"); });
+        bool layerPanelIntercepted = layerPanel.Update(
+            canvas,
+            history,
+            mouseScreenPos,
+            sw,
+            sh,
+            () =>
+            {
+                ActiveTab.IsDirty = true;
+                ShowStatus($"Aktif Katman: {canvas.Layers[canvas.ActiveLayerIndex].Name}");
+            },
+            selection,
+            ShowStatus
+        );
 
         bool insideDrawingArea = !topMenuIntercepted && !tabBarIntercepted && !animPanelIntercepted &&
                                  !toolPanelIntercepted && !paletteIntercepted && !refIntercepted && !layerPanelIntercepted &&
@@ -120,7 +133,7 @@ partial class Program
         bool isCtrlDown = Raylib.IsKeyDown(KeyboardKey.LeftControl) || Raylib.IsKeyDown(KeyboardKey.RightControl);
 
         UpdateCanvasCameraNavigation(mouseScreenPos, insideDrawingArea, isCtrlDown, ref camera);
-        HandleWorkspaceShortcuts(canvas, selection, history, isCtrlDown, topMenuIntercepted || tabBarIntercepted || paletteIntercepted || toolPanelIntercepted || refIntercepted);
+        HandleWorkspaceShortcuts(canvas, selection, history, isCtrlDown, topMenuIntercepted || tabBarIntercepted || paletteIntercepted || toolPanelIntercepted || refIntercepted || layerPanelIntercepted);
         HandleCanvasDrawingAndSelection(canvas, selection, history, camera, mouseScreenPos, insideDrawingArea, isCtrlDown);
 
         if (messageTimer > 0)
@@ -239,15 +252,16 @@ partial class Program
 
     static bool UpdatePanelResize(Vector2 mouseScreenPos, int sw, int sh)
     {
+        const int MinCanvasCenterWidth = 260;
+        int maxLeftAllowed = Math.Max(52, Math.Min(sw / 2 - 120, sw - RightPanelWidth - MinCanvasCenterWidth));
+        int maxRightAllowed = Math.Max(165, Math.Min(sw / 2 - 120, sw - LeftPanelWidth - MinCanvasCenterWidth));
+
+        LeftPanelWidth = Math.Clamp(LeftPanelWidth, 52, maxLeftAllowed);
+        RightPanelWidth = Math.Clamp(RightPanelWidth, 165, maxRightAllowed);
+        toolPanel.Width = LeftPanelWidth;
+
         if (ActiveTab != null && AppSettings.EnablePanelResize)
         {
-            int maxLeftAllowed = Math.Max(52, Math.Min(sw / 2 - 80, sw - RightPanelWidth - 160));
-            int maxRightAllowed = Math.Max(165, Math.Min(sw / 2 - 80, sw - LeftPanelWidth - 160));
-
-            LeftPanelWidth = Math.Clamp(LeftPanelWidth, 52, maxLeftAllowed);
-            RightPanelWidth = Math.Clamp(RightPanelWidth, 165, maxRightAllowed);
-            toolPanel.Width = LeftPanelWidth;
-
             Rectangle leftDragZone = new Rectangle(LeftPanelWidth - 4, WorkspaceTopY, 8, sh - WorkspaceTopY);
             Rectangle rightDragZone = new Rectangle(sw - RightPanelWidth - 4, WorkspaceTopY, 8, sh - WorkspaceTopY);
 
@@ -288,7 +302,7 @@ partial class Program
             isDraggingLeftPanel = false;
             isDraggingRightPanel = false;
         }
-        
+
         return false;
     }
 
@@ -795,7 +809,7 @@ partial class Program
         }
 
         tabBar.Draw(tabs, activeTabIndex, sw);
-        topMenu.Draw(sw);
+        topMenu.Draw(sw, statusMessage);
 
         colorPicker.Draw();
         newProjectDialog.Draw();
@@ -821,30 +835,24 @@ partial class Program
         Vector2 worldMousePos = Raylib.GetScreenToWorld2D(mouseScreenPos, camera);
         var (gx, gy) = canvas.ScreenToGrid(worldMousePos);
 
+        int curveCtrlX = 0, curveCtrlY = 0;
+        bool drawCurveGuidesScreenSpace = false;
+
         // Eğri (Bezier Curve) Canlı Önizlemesi
         if (toolManager.ActiveTool == ToolType.Curve && curveStartPos.HasValue)
         {
             List<(int x, int y)> curvePreviewPixels;
             if (isCurveAwaitingControl && curveEndPos.HasValue)
             {
-                int ctrlX = canvas.TileWrapMode ? gx : Math.Clamp(gx, -canvas.Width, canvas.Width * 2);
-                int ctrlY = canvas.TileWrapMode ? gy : Math.Clamp(gy, -canvas.Height, canvas.Height * 2);
+                curveCtrlX = canvas.TileWrapMode ? gx : Math.Clamp(gx, -canvas.Width, canvas.Width * 2);
+                curveCtrlY = canvas.TileWrapMode ? gy : Math.Clamp(gy, -canvas.Height, canvas.Height * 2);
                 curvePreviewPixels = ToolManager.GetBezierCurvePixels(
                     curveStartPos.Value.x, curveStartPos.Value.y,
-                    ctrlX, ctrlY,
+                    curveCtrlX, curveCtrlY,
                     curveEndPos.Value.x, curveEndPos.Value.y,
                     cleanCorners: toolManager.PenSize == 1
                 );
-
-                // Kavis tepe noktasını ve kılavuz kollarını ince kesikli çizgi gibi göster
-                Vector2 p0Screen = new Vector2(canvas.Offset.X + (curveStartPos.Value.x + 0.5f) * canvas.PixelScale, canvas.Offset.Y + (curveStartPos.Value.y + 0.5f) * canvas.PixelScale);
-                Vector2 p1Screen = new Vector2(canvas.Offset.X + (ctrlX + 0.5f) * canvas.PixelScale, canvas.Offset.Y + (ctrlY + 0.5f) * canvas.PixelScale);
-                Vector2 p2Screen = new Vector2(canvas.Offset.X + (curveEndPos.Value.x + 0.5f) * canvas.PixelScale, canvas.Offset.Y + (curveEndPos.Value.y + 0.5f) * canvas.PixelScale);
-                float guideThickness = Math.Max(1f, 1.2f / camera.Zoom);
-                Color guideCol = new Color((byte)255, (byte)205, (byte)75, (byte)160);
-                Raylib.DrawLineEx(p0Screen, p1Screen, guideThickness, guideCol);
-                Raylib.DrawLineEx(p2Screen, p1Screen, guideThickness, guideCol);
-                Raylib.DrawCircleV(p1Screen, Math.Max(2f, 3.5f / camera.Zoom), PixelSkin.AccentGold);
+                drawCurveGuidesScreenSpace = true;
             }
             else
             {
@@ -877,9 +885,26 @@ partial class Program
 
         selection.DrawWorldOverlay(canvas);
         Raylib.EndMode2D();
-        selection.CheckAndDrawFloatingMenu(canvas, camera, mouseScreenPos, history, ShowStatus);
 
-        DrawCanvasHudOverlay(canvas, worldMousePos, gx, gy, sh);
+        // Bezier kılavuz kollarını ve kontrol noktasını ekran uzayında (Screen-Space) sabit kalınlıkta çiz
+        if (drawCurveGuidesScreenSpace && curveStartPos.HasValue && curveEndPos.HasValue)
+        {
+            Vector2 p0World = new Vector2(canvas.Offset.X + (curveStartPos.Value.x + 0.5f) * canvas.PixelScale, canvas.Offset.Y + (curveStartPos.Value.y + 0.5f) * canvas.PixelScale);
+            Vector2 p1World = new Vector2(canvas.Offset.X + (curveCtrlX + 0.5f) * canvas.PixelScale, canvas.Offset.Y + (curveCtrlY + 0.5f) * canvas.PixelScale);
+            Vector2 p2World = new Vector2(canvas.Offset.X + (curveEndPos.Value.x + 0.5f) * canvas.PixelScale, canvas.Offset.Y + (curveEndPos.Value.y + 0.5f) * canvas.PixelScale);
+
+            Vector2 p0Screen = Raylib.GetWorldToScreen2D(p0World, camera);
+            Vector2 p1Screen = Raylib.GetWorldToScreen2D(p1World, camera);
+            Vector2 p2Screen = Raylib.GetWorldToScreen2D(p2World, camera);
+
+            Color guideCol = new Color((byte)255, (byte)205, (byte)75, (byte)185);
+            Raylib.DrawLineEx(p0Screen, p1Screen, 1.5f, guideCol);
+            Raylib.DrawLineEx(p2Screen, p1Screen, 1.5f, guideCol);
+            Raylib.DrawCircleV(p1Screen, 5.5f, Color.Black);
+            Raylib.DrawCircleV(p1Screen, 4f, PixelSkin.AccentGold);
+        }
+
+        selection.CheckAndDrawFloatingMenu(canvas, camera, mouseScreenPos, history, ShowStatus);
 
         layerPanel.Draw(canvas, sw, sh);
         animationPanel.Draw(canvas, sw, sh);
@@ -904,6 +929,10 @@ partial class Program
     {
         int stampOffset = stampSize / 2;
         Color previewColor = new Color(palette.CurrentColor.R, palette.CurrentColor.G, palette.CurrentColor.B, (byte)185);
+        Color neighborPreviewColor = new Color(palette.CurrentColor.R, palette.CurrentColor.G, palette.CurrentColor.B, (byte)115);
+        int totalW = canvas.Width * canvas.PixelScale;
+        int totalH = canvas.Height * canvas.PixelScale;
+
         HashSet<(int, int)> drawnPreview = new();
         foreach (var (px, py) in previewPixels)
         {
@@ -914,38 +943,27 @@ partial class Program
                     foreach (var (spx, spy) in toolManager.GetSymmetricPoints(canvas, px - stampOffset + dx, py - stampOffset + dy))
                     {
                         if (spx >= 0 && spx < canvas.Width && spy >= 0 && spy < canvas.Height && drawnPreview.Add((spx, spy)))
-                            Raylib.DrawRectangle((int)canvas.Offset.X + spx * canvas.PixelScale, (int)canvas.Offset.Y + spy * canvas.PixelScale, canvas.PixelScale, canvas.PixelScale, previewColor);
+                        {
+                            int rx = (int)canvas.Offset.X + spx * canvas.PixelScale;
+                            int ry = (int)canvas.Offset.Y + spy * canvas.PixelScale;
+                            Raylib.DrawRectangle(rx, ry, canvas.PixelScale, canvas.PixelScale, previewColor);
+
+                            if (canvas.TileWrapMode)
+                            {
+                                for (int ty = -1; ty <= 1; ty++)
+                                {
+                                    for (int tx = -1; tx <= 1; tx++)
+                                    {
+                                        if (tx == 0 && ty == 0) continue;
+                                        Raylib.DrawRectangle(rx + tx * totalW, ry + ty * totalH, canvas.PixelScale, canvas.PixelScale, neighborPreviewColor);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-    }
-
-    static void DrawCanvasHudOverlay(Canvas canvas, Vector2 worldMousePos, int gx, int gy, int sh)
-    {
-        float hudX = LeftPanelWidth + 10f;
-        float hudY = sh - 28f;
-
-        bool insideCanvas = canvas.IsMouseInside(worldMousePos);
-        var (dispX, dispY) = canvas.TileWrapMode && insideCanvas ? canvas.WrapCoord(gx, gy) : (gx, gy);
-        string coordText = insideCanvas ? $"X: {dispX}  Y: {dispY}" : $"Tuval: {canvas.Width}x{canvas.Height}";
-        string zoomText = $"{(int)(ZoomLevels[ActiveTab!.ZoomIndex] * 100)}%";
-
-        string badges = "";
-        if (toolManager.PixelPerfect) badges += " [Px-Perfect]";
-        if (toolManager.Symmetry != SymmetryMode.None) badges += $" [Sim: {ToolManager.SymmetryLabel(toolManager.Symmetry)}]";
-        if (canvas.ActiveLayerAlphaLock) badges += " [Alfa-Kilit]";
-        if (canvas.TileWrapMode) badges += " [Tile-Wrap]";
-        if (AppSettings.TileGridSize > 0) badges += $" [Karo: {AppSettings.TileGridLabel(AppSettings.TileGridSize)}]";
-        if (statusMessage != "Hazir") badges += $"  |  {statusMessage}";
-
-        string fullHud = $"{coordText}   |   Zoom: {zoomText}{badges}";
-        int textW = Raylib.MeasureText(fullHud, 11);
-
-        Rectangle pillRect = new Rectangle(hudX, hudY, textW + 18f, 20f);
-        Raylib.DrawRectangleRec(pillRect, new Color((byte)20, (byte)20, (byte)25, (byte)215));
-        Raylib.DrawRectangleLinesEx(pillRect, 1f, PixelSkin.PanelBorderDark);
-        Raylib.DrawText(fullHud, (int)pillRect.X + 9, (int)pillRect.Y + 5, 11, statusMessage != "Hazir" ? PixelSkin.AccentGold : PixelSkin.TextPrimary);
     }
 
     static void DrawSymmetryAxes(Canvas canvas, Camera2D camera)
@@ -988,6 +1006,8 @@ partial class Program
         float pulse = (float)(Math.Sin(Raylib.GetTime() * 8.0) * 0.5 + 0.5);
         byte alphaPulse = (byte)(150 + pulse * 105);
         float lineThickness = Math.Max(1f, 1.5f / camera.Zoom);
+        int totalW = canvas.Width * canvas.PixelScale;
+        int totalH = canvas.Height * canvas.PixelScale;
 
         Color outlineCol = toolManager.ActiveTool switch
         {
@@ -1010,7 +1030,26 @@ partial class Program
 
             if (toolManager.ActiveTool == ToolType.Pen)
             {
-                Raylib.DrawRectangleRec(brushPreviewRect, new Color(palette.CurrentColor.R, palette.CurrentColor.G, palette.CurrentColor.B, (byte)85));
+                Color penGhost = new Color(palette.CurrentColor.R, palette.CurrentColor.G, palette.CurrentColor.B, (byte)95);
+                if (canvas.TileWrapMode)
+                {
+                    for (int dx = 0; dx < size; dx++)
+                    {
+                        for (int dy = 0; dy < size; dy++)
+                        {
+                            var (wx, wy) = canvas.WrapCoord(sx - offset + dx, sy - offset + dy);
+                            int rx = (int)canvas.Offset.X + wx * canvas.PixelScale;
+                            int ry = (int)canvas.Offset.Y + wy * canvas.PixelScale;
+                            for (int ty = -1; ty <= 1; ty++)
+                                for (int tx = -1; tx <= 1; tx++)
+                                    Raylib.DrawRectangle(rx + tx * totalW, ry + ty * totalH, canvas.PixelScale, canvas.PixelScale, penGhost);
+                        }
+                    }
+                }
+                else
+                {
+                    Raylib.DrawRectangleRec(brushPreviewRect, penGhost);
+                }
             }
             else if (toolManager.ActiveTool == ToolType.Dither)
             {
@@ -1025,13 +1064,16 @@ partial class Program
                         if (px >= 0 && px < canvas.Width && py >= 0 && py < canvas.Height &&
                             ToolManager.ShouldPaintDither(px, py, toolManager.ActiveDither))
                         {
-                            Raylib.DrawRectangle(
-                                (int)canvas.Offset.X + px * canvas.PixelScale,
-                                (int)canvas.Offset.Y + py * canvas.PixelScale,
-                                canvas.PixelScale,
-                                canvas.PixelScale,
-                                ditherPreviewCol
-                            );
+                            int rx = (int)canvas.Offset.X + px * canvas.PixelScale;
+                            int ry = (int)canvas.Offset.Y + py * canvas.PixelScale;
+                            Raylib.DrawRectangle(rx, ry, canvas.PixelScale, canvas.PixelScale, ditherPreviewCol);
+                            if (canvas.TileWrapMode)
+                            {
+                                for (int ty = -1; ty <= 1; ty++)
+                                    for (int tx = -1; tx <= 1; tx++)
+                                        if (tx != 0 || ty != 0)
+                                            Raylib.DrawRectangle(rx + tx * totalW, ry + ty * totalH, canvas.PixelScale, canvas.PixelScale, ditherPreviewCol);
+                            }
                         }
                     }
                 }
@@ -1043,6 +1085,19 @@ partial class Program
 
             Raylib.DrawRectangleLinesEx(brushPreviewRect, lineThickness * 1.6f, new Color((byte)0, (byte)0, (byte)0, (byte)200));
             Raylib.DrawRectangleLinesEx(brushPreviewRect, lineThickness, outlineCol);
+
+            // Tile-Wrap açıkken imleç çevre karolardaysa gerçek imleç konumunda da çerçeveyi göster
+            if (canvas.TileWrapMode && (sx != gx || sy != gy))
+            {
+                Rectangle cursorTileRect = new Rectangle(
+                    canvas.Offset.X + (gx - offset) * canvas.PixelScale,
+                    canvas.Offset.Y + (gy - offset) * canvas.PixelScale,
+                    size * canvas.PixelScale,
+                    size * canvas.PixelScale
+                );
+                Raylib.DrawRectangleLinesEx(cursorTileRect, lineThickness * 1.6f, new Color((byte)0, (byte)0, (byte)0, (byte)200));
+                Raylib.DrawRectangleLinesEx(cursorTileRect, lineThickness, outlineCol);
+            }
         }
     }
 

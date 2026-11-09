@@ -1,5 +1,6 @@
 // === DOSYA: \Core\Layer.cs ===
 using System;
+using System.Collections.Generic;
 using Raylib_cs;
 
 namespace PixelArtApp.Core;
@@ -74,6 +75,29 @@ public class Layer : IDisposable
 
     public bool AlphaLock { get; set; } = false;
 
+    // Birleştirilmiş (Merge edilmiş) katmanların tekrar ayrılabilmesi (Unmerge/Split) için kaynak katman geçmişi
+    private List<Layer>? mergedSources;
+    public bool HasMergedSources => mergedSources != null && mergedSources.Count >= 2;
+    public IReadOnlyList<Layer>? MergedSources => mergedSources;
+
+    public void SetMergedSources(IEnumerable<Layer> sources)
+    {
+        ClearMergedSources();
+        mergedSources = new List<Layer>();
+        foreach (var src in sources)
+        {
+            mergedSources.Add(src.Clone());
+        }
+    }
+
+    public void ClearMergedSources()
+    {
+        if (mergedSources == null) return;
+        foreach (var src in mergedSources)
+            src.Dispose();
+        mergedSources = null;
+    }
+
     public bool IsDirty { get; set; } = true;
     internal bool FrameCompositeDirty { get; set; } = true;
     internal bool VisibilityChanged { get; set; } = true;
@@ -90,7 +114,7 @@ public class Layer : IDisposable
         buffer = new PixelBuffer(width, height);
     }
 
-    private Layer(string name, PixelBuffer sharedBuffer, bool visible, byte layerOpacity, bool alphaLock)
+    private Layer(string name, PixelBuffer sharedBuffer, bool visible, byte layerOpacity, bool alphaLock, List<Layer>? existingMergedSources)
     {
         Name = name;
         Width = sharedBuffer.Data.GetLength(0);
@@ -100,6 +124,12 @@ public class Layer : IDisposable
         isVisible = visible;
         opacity = layerOpacity;
         AlphaLock = alphaLock;
+        if (existingMergedSources != null && existingMergedSources.Count > 0)
+        {
+            mergedSources = new List<Layer>(existingMergedSources.Count);
+            foreach (var s in existingMergedSources)
+                mergedSources.Add(s.Clone());
+        }
         IsDirty = true;
         FrameCompositeDirty = true;
         VisibilityChanged = true;
@@ -181,7 +211,7 @@ public class Layer : IDisposable
 
     public Layer Clone()
     {
-        return new Layer(Name, this.buffer, this.isVisible, this.opacity, this.AlphaLock);
+        return new Layer(Name, this.buffer, this.isVisible, this.opacity, this.AlphaLock, this.mergedSources);
     }
 
     public void Dispose()
@@ -190,6 +220,7 @@ public class Layer : IDisposable
         {
             if (buffer.RefCount > 1)
                 buffer.RefCount--;
+            ClearMergedSources();
             isDisposed = true;
         }
 

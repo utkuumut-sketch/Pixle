@@ -252,6 +252,7 @@ public class ToolManager
 
         if (mode == ShadingMode.PaletteRamp && paletteColors != null && paletteColors.Count >= 2)
         {
+            RgbToHsv(c, out float curH, out float curS, out float curV);
             int curLum = c.R * 299 + c.G * 587 + c.B * 114;
             int curIdx = -1;
             for (int i = 0; i < paletteColors.Count; i++)
@@ -279,6 +280,23 @@ public class ToolManager
                 if (!darken && lumDiff <= 1500) continue;
                 if (darken && lumDiff >= -1500) continue;
 
+                RgbToHsv(cand, out float candH, out float candS, out float candV);
+                float hueDiff = Math.Abs(candH - curH);
+                if (hueDiff > 180f) hueDiff = 360f - hueDiff;
+
+                // Renkli piksellerin alakasiz bir renk tonuna (ornegin kirmizidan yesile/maviye) atlamasini engelle
+                if (curS > 0.14f && candS > 0.14f && hueDiff > 48f) continue;
+                if (curS > 0.18f && candS <= 0.14f)
+                {
+                    if (!darken && candV < 0.86f) continue;
+                    if (darken && candV > 0.22f) continue;
+                    hueDiff = 18f;
+                }
+                else if (curS <= 0.14f && candS > 0.28f)
+                {
+                    continue;
+                }
+
                 double dr = cand.R - c.R;
                 double dg = cand.G - c.G;
                 double db = cand.B - c.B;
@@ -286,8 +304,8 @@ public class ToolManager
                 double absLumStep = Math.Abs(lumDiff) / 1000.0;
 
                 // Palet sirasinda yan yana olan (ramp) renklere oncelik bonusu ver
-                double adjacencyBonus = (curIdx >= 0 && Math.Abs(i - curIdx) == 1) ? 0.45 : 1.0;
-                double score = (absLumStep * 1.2 + rgbDist * 1.5) * adjacencyBonus;
+                double adjacencyBonus = (curIdx >= 0 && Math.Abs(i - curIdx) == 1) ? 0.55 : 1.0;
+                double score = (hueDiff * 2.8 + absLumStep * 1.15 + rgbDist * 1.0) * adjacencyBonus;
 
                 if (score < bestScore)
                 {
